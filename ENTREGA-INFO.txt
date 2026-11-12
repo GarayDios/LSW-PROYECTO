@@ -1,0 +1,2 @@
+Proyecto educativo TEPIC. Empieza por LEEME-PARA-COMPARTIR.md.
+Se omiten dependencias instaladas, cachés, credenciales y datos locales.

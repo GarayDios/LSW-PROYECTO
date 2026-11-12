@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>PMCC y Call Ratio Backspread · Desde cero · TEPIC</title>
+<style>
+@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;color:#172538;font:11pt/1.48 'Segoe UI',Arial,sans-serif;background:#e6e9ee}.page{width:210mm;min-height:297mm;height:297mm;background:white;padding:17mm 18mm 16mm;position:relative;break-after:page;overflow:hidden}.page:last-child{break-after:auto}.head{font-size:8pt;letter-spacing:1.7px;color:#7c4a22;border-bottom:1px solid #e3ddd5;padding-bottom:8px;margin-bottom:17px}.foot{position:absolute;bottom:10mm;left:18mm;right:18mm;border-top:1px solid #ddd;padding-top:7px;display:flex;justify-content:space-between;font-size:8pt;color:#637083}h1{font-size:34pt;line-height:1.1;letter-spacing:-1.5px;margin:18px 0}h2{font-size:23pt;line-height:1.15;margin:0 0 15px;letter-spacing:-.6px}h3{font-size:13pt;color:#a54a11;margin:18px 0 7px}p{margin:8px 0}ul,ol{padding-left:21px;margin:8px 0}li{margin-bottom:7px}strong{font-weight:700}table{width:100%;border-collapse:collapse;font-size:10pt;margin:12px 0}th{background:#203249;color:white;text-align:left}th,td{padding:7px 9px;border:1px solid #d9e0e7;vertical-align:top}tr:nth-child(even) td{background:#f4f6f8}.note,.warn,.formula{padding:12px 14px;border-radius:6px;margin:13px 0;break-inside:avoid}.note{background:#edf4fa;border-left:4px solid #437ca3}.warn{background:#fff2e8;border-left:4px solid #e9873b}.formula{background:#182b40;color:white;font:11pt/1.6 Consolas,monospace}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.pill{display:inline-block;border:1px solid #d68443;background:#fff0e1;color:#90410c;border-radius:30px;padding:5px 13px;font-size:9pt;font-weight:700}.small{font-size:9pt;color:#526176}.tiny{font-size:8pt;line-height:1.4}.quote{font-size:16pt;line-height:1.4;color:#274967;border-left:4px solid #e9873b;padding-left:15px;margin:20px 0}.cover{background:#112438;color:white}.cover .head,.cover .foot{color:#b6c9d9;border-color:#3c5165}.cover h1{margin-top:40px;font-size:43pt}.cover h1 em{font-style:normal;color:#ffac70}.cover .subtitle{font-size:17pt;color:#d1dfec;line-height:1.5}.cover .note{background:#203a51;color:#e2ecf4;border-color:#ffac70}.cover .small{color:#bfcedd}.cover .pill{background:#314253;color:#ffd0a9}.cover .route{margin-top:35px;display:grid;grid-template-columns:1fr 1fr;gap:12px}.cover .route div{border:1px solid #456076;padding:15px;border-radius:6px}.cover .route b{display:block;color:#ffb780;font-size:18pt}.checklist li{list-style-type:square}svg{max-width:100%;height:auto}a{color:#215580;overflow-wrap:anywhere}.step{background:#f4f6f8;padding:9px 12px;border-left:3px solid #617e96;margin-bottom:9px}.step b{color:#1d4564}.sources{font-size:9pt;line-height:1.55}.sources li{margin-bottom:12px}code{font-family:Consolas,monospace;background:#eef1f4;padding:1px 4px;border-radius:3px}@media print{body{background:white}.page{margin:0}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}@media screen{.page{margin:16px auto;box-shadow:0 3px 20px #0002}}
+</style></head><body>
+
+<section class="page cover">
+<div class="head">TEPIC / OPTIONS LAB · GUÍA DE APRENDIZAJE Y DEMOSTRACIÓN</div>
+<span class="pill">DESDE CERO · CON NÚMEROS Y PASOS REALES DEL PROYECTO</span>
+<h1>Entiende y demuestra<br><em>PMCC</em><br>y <em>Call Ratio</em></h1>
+<p class="subtitle">Poor Man’s Covered Call y Call Ratio Backspread 1:2, explicados para aprenderlos bien y presentarlos ante tus compañeros.</p>
+<div class="route"><div><b>01 · Entender</b>Qué compras, qué vendes y qué riesgo aceptas.</div><div><b>02 · Calcular</b>Primas, pérdidas, equilibrio y cierre.</div><div><b>03 · Demostrar</b>Qué botones pulsar y qué resultados comprobar.</div><div><b>04 · Explicar</b>Guion, ejercicios y respuestas para practicar.</div></div>
+<div class="note"><strong>Idea clave:</strong> cobrar una prima no significa haber ganado. Una estrategia se evalúa sumando todas sus opciones, acciones y costes.</div>
+<p class="small">Edición: 11 de noviembre de 2026 · Importes en USD.<br>Material educativo. Símbolos, precios y escenarios ficticios. No es asesoría ni una propuesta para operar dinero real.</p>
+</section>
+
+<section class="page">
+<div class="head">01 / BASES · EL IDIOMA DE LAS OPCIONES</div><h2>Primero: ¿qué es una call?</h2>
+<p>Una <strong>call</strong> le da a su comprador el derecho de comprar acciones a un precio acordado, llamado <strong>strike</strong>. A cambio, paga una <strong>prima</strong>. Quien la vende recibe esa prima y acepta la obligación correspondiente si es asignado.</p>
+<table><tr><th>Palabra</th><th>En lenguaje sencillo</th></tr><tr><td>Subyacente / spot</td><td>La acción y su precio. En el ejemplo, NVDA a $147.22.</td></tr><tr><td>Strike, K</td><td>Precio pactado. Una call 100 permite comprar a $100.</td></tr><tr><td>Vencimiento</td><td>Fecha en que termina el contrato. No es lo mismo que cerrar antes.</td></tr><tr><td>Prima</td><td>Precio de la opción, expresado aquí por acción.</td></tr><tr><td>Larga / comprada (+)</td><td>Pagas prima; tienes un derecho, no la obligación de ejercer.</td></tr><tr><td>Corta / vendida (−)</td><td>Cobras prima; puedes recibir una asignación.</td></tr><tr><td>ITM / ATM / OTM</td><td>Call ITM: precio &gt; strike. ATM: precio cerca del strike. OTM: precio &lt; strike.</td></tr></table>
+<div class="formula">Valor intrínseco de una call = max(precio − strike, 0)<br>1 contrato estándar del laboratorio = 100 acciones</div>
+<p><strong>Ejemplo:</strong> compras una call 150 por prima $7. Pagas <strong>$700</strong>, no $7. Al vencimiento, si la acción vale $170, su valor intrínseco es $20 por acción: $2,000 por contrato. Beneficio bruto: $2,000 − $700 = <strong>$1,300</strong>.</p>
+<div class="warn">Si vence a $140, la call 150 no tiene valor intrínseco. El comprador pierde los $700 pagados. Que una opción sea barata no significa que tenga poco riesgo porcentual.</div>
+<p class="small">Estos ejemplos suponen contratos sin ajustes. En mercados reales existen contratos con multiplicadores o entregables distintos.</p>
+</section>
+
+<section class="page">
+<div class="head">02 / LECTURA DE RESULTADOS · NO CONFUNDAS EFECTIVO CON GANANCIA</div><h2>Cuatro conceptos que debes dominar</h2>
+<div class="step"><b>1. Débito y crédito.</b> Débito = pagaste más prima de la que cobraste. Crédito = cobraste más de lo que pagaste. Ninguno, por sí solo, describe el beneficio final.</div>
+<div class="step"><b>2. Realizado y no realizado.</b> Realizado: resultado de posiciones ya cerradas o liquidadas. No realizado: variación de valor de posiciones abiertas. El total suma ambos, incluyendo las comisiones configuradas.</div>
+<div class="step"><b>3. Patrimonio, no solo efectivo.</b> Si una asignación deja −100 acciones, el efectivo puede aumentar mucho, pero también aparece una obligación valorada negativamente.</div>
+<div class="formula">Patrimonio = efectivo + valor de acciones + valor neto de opciones<br>Resultado total = patrimonio − capital inicial del ciclo</div>
+<div class="step"><b>4. Intrínseco y tiempo.</b> Antes de vencer, una call puede valer más que su valor intrínseco: conserva valor temporal. Esto será esencial en PMCC.</div>
+<h3>Las griegas, sin complicarnos</h3>
+<table><tr><th>Griega</th><th>Qué pregunta responde</th></tr><tr><td>Delta, Δ</td><td>¿Cuánto cambia aproximadamente la opción si la acción sube $1? Una call comprada suele tener delta positiva.</td></tr><tr><td>Theta, Θ</td><td>¿Cómo afecta el paso del tiempo? Puede beneficiar a una opción vendida, pero el efecto neto de un spread depende de todas sus piernas.</td></tr><tr><td>Vega</td><td>¿Cómo afecta un cambio en la volatilidad implícita? No es igual en cada vencimiento.</td></tr><tr><td>Gamma, Γ</td><td>¿Qué tan rápido cambia delta? Ayuda a entender por qué dos calls pueden dominar tras una subida fuerte.</td></tr></table>
+<div class="note">El simulador valora opciones abiertas con BSM europeo, pero aplica una regla educativa de ejercicio físico al vencimiento. No reproduce todos los detalles de opciones estadounidenses.</div>
+</section>
+
+<section class="page">
+<div class="head">03 / PMCC · LA ESTRUCTURA</div><h2>Comprar tiempo largo.<br>Vender tiempo corto.</h2>
+<p><strong>Poor Man’s Covered Call (PMCC)</strong> es una forma de diagonal alcista: compras una call de strike menor y vencimiento lejano; vendes otra de strike mayor y vencimiento cercano sobre la misma acción.</p>
+<table><tr><th>Pierna</th><th>Ejemplo del laboratorio</th><th>Dinero inicial</th></tr><tr><td>Comprar 1 call larga</td><td>Strike 100 · 375 días · prima $52</td><td>−$5,200</td></tr><tr><td>Vender 1 call corta</td><td>Strike 160 · 32 días · prima $4</td><td>+$400</td></tr><tr><td><strong>Débito neto</strong></td><td>($52 − $4) × 100</td><td><strong>−$4,800</strong></td></tr></table>
+<svg viewBox="0 0 660 150" aria-label="Línea temporal PMCC"><line x1="25" y1="70" x2="620" y2="70" stroke="#a4b2bf" stroke-width="4"/><circle cx="25" cy="70" r="8" fill="#e9873b"/><circle cx="215" cy="70" r="8" fill="#447fa7"/><circle cx="620" cy="70" r="8" fill="#203249"/><text x="25" y="30" fill="#203249" font-size="16">Inicio: 09 nov 2026</text><text x="145" y="108" fill="#203249" font-size="16">Corta: 11 dic 2026</text><text x="420" y="30" fill="#203249" font-size="16">Larga: 19 nov 2027</text><text x="245" y="140" fill="#617183" font-size="14">Después del primer vencimiento, la larga sigue viva.</text></svg>
+<h3>¿Por qué “Poor Man’s”?</h3>
+<p>Una covered call tradicional usa 100 acciones como cobertura. A $147.22, comprarlas cuesta $14,722 antes de vender la call. Aquí la call larga sustituye parte de esa exposición con menor desembolso inicial. <strong>No equivale a tener 100 acciones ni elimina la asignación.</strong></p>
+<p>Una configuración frecuente usa una call larga bastante ITM y con delta alta. Su delta no es exactamente 1: la cobertura es imperfecta. El ejemplo usa precios educativos, no una selección óptima de contratos.</p>
+<div class="quote">“Mi call larga aporta exposición alcista; la call corta aporta prima, pero limita parte de la subida y añade obligación.”</div>
+<div class="warn">Una caída fuerte puede consumir el débito neto. Mientras la call corta está abierta, la subida no produce una ganancia ilimitada del conjunto. Si cierras la corta y dejas la larga, cambia la exposición.</div>
+</section>
+
+<section class="page">
+<div class="head">04 / PMCC · PREPARA LA DEMOSTRACIÓN</div><h2>Configura exactamente este ejercicio</h2>
+<p>Abre el terminal → menú <strong>Ciclos de inversión</strong> → <strong>Nuevo ciclo</strong>. Si es la primera vez, el formulario ya aparece. Elige primero la estrategia y luego la empresa, porque esas selecciones cargan valores iniciales.</p>
+<table><tr><th>Campo que verás</th><th>Valor</th></tr><tr><td>Estrategia</td><td>Poor Man’s Covered Call</td></tr><tr><td>Empresa</td><td>NVDA · NVIDIA Corporation</td></tr><tr><td>Capital del ciclo · USD / Contratos base</td><td>20000 / 1</td></tr><tr><td>Fecha inicial / Precio inicial simulado · USD</td><td>2026-11-09 / 147.22</td></tr><tr><td>Días de la call corta / Días de la call larga</td><td>32 / 375</td></tr><tr><td>Strike de la call vendida / comprada</td><td>160 / 100</td></tr><tr><td>Prima call vendida / comprada · USD</td><td>4 / 52 (por acción)</td></tr><tr><td>Volatilidad anual · %</td><td>54</td></tr><tr><td>Comisión por contrato / por acción</td><td>0 / 0 para reproducir las cifras de esta guía</td></tr></table>
+<p>Antes de crear el ciclo, en <strong>Configuración</strong> confirma una tasa anual de <strong>4.0%</strong>. Luego vuelve a crear el borrador para que tome esa tasa. NVDA usa dividend yield de muestra 0.03% anual.</p>
+<ol><li>Pulsa <strong>Revisar ciclo</strong>. Comprueba: comprar 1 CALL 100 y vender 1 CALL 160, con fechas diferentes.</li><li>Pulsa <strong>Confirmar inicio del ciclo</strong>.</li><li>En la apertura debe aparecer <strong>efectivo $15,200</strong>: $20,000 − $5,200 + $400.</li></ol>
+<div class="note"><strong>Capital asignado ≠ coste de las opciones.</strong> Los $20,000 son la bolsa de dinero del ejercicio; el débito neto es $4,800. Puede aparecer resultado no realizado inicial distinto de cero porque las primas de entrada son manuales y BSM calcula la valoración.</div>
+</section>
+
+<section class="page">
+<div class="head">05 / PMCC · DEMO A: VENCE LA CORTA, SIGUE LA LARGA</div><h2>Escenario de $145:<br>cobra la prima, pero suma todo</h2>
+<div class="step"><b>Paso 1.</b> En “Continúa el ciclo”, introduce <strong>Fecha siguiente: 2026-12-11</strong> y <strong>Precio del escenario · USD: 145</strong>. Pulsa <strong>Avanzar paso</strong>. También puedes pulsar el atajo “Usar próximo vencimiento” para completar la fecha.</div>
+<div class="step"><b>Paso 2.</b> Explica por qué: $145 está por debajo del strike 160. La call vendida vence sin ejercicio en la convención del simulador.</div>
+<table><tr><th>Qué comprobar</th><th>Valor / estado esperado</th></tr><tr><td>Fase</td><td>Call larga disponible</td></tr><tr><td>Acciones</td><td>0</td></tr><tr><td>Opciones abiertas</td><td>Una call comprada strike 100; vence 2027-11-19</td></tr><tr><td>Efectivo</td><td>$15,200</td></tr><tr><td>Valor de la call larga con BSM</td><td>Aproximadamente $5,618.22 por contrato</td></tr><tr><td>Resultado total</td><td>Aproximadamente +$818.22</td></tr></table>
+<div class="formula">Resultado = $15,200 + $5,618.22 − $20,000<br>          = +$818.22 (redondeado)</div>
+<p><strong>¿De dónde viene?</strong> La corta aporta $400 realizados. La larga vale $418.22 más que sus $5,200 de entrada. El total no es simplemente “cobré $400”.</p>
+<h3>Ahora demuestra dos decisiones distintas</h3>
+<ul><li><strong>Cerrar todo:</strong> pulsa “Cerrar todas las posiciones ahora”. Quedan 0 acciones, 0 opciones y efectivo final aproximado de <strong>$20,818.22</strong>.</li><li><strong>Renovar la corta:</strong> antes de cerrar, pulsa “Renovar call corta”. En este ejemplo se vende otra call 160 al 2027-01-12, con prima BSM aproximada de <strong>$4.13</strong> por acción. Cobrar esos $413 abre otra obligación: no es ganancia instantánea.</li></ul>
+<p class="small">Para enseñar las dos alternativas, usa ciclos independientes con la misma configuración. Los resultados posteriores cambiarán si renuevas, añades comisiones o modificas tasa, volatilidad o fechas.</p>
+</section>
+
+<section class="page">
+<div class="head">06 / PMCC · DEMO B: ASIGNACIÓN Y PÉRDIDA</div><h2>Que suba no significa<br>“todo es ganancia”</h2>
+<p>Abre un <strong>nuevo ciclo PMCC</strong> con la configuración de la página 5. Avanza directamente a <strong>2026-12-11, precio $170</strong>.</p>
+<ol><li>La call vendida 160 termina ITM: aparece <strong>“Asignación por resolver”</strong>.</li><li>Comprueba <strong>−100 acciones</strong>, una call larga 100 aún abierta y efectivo de <strong>$31,200</strong>.</li><li>El efectivo aumentó porque se simula la entrega/venta de 100 acciones a $160. <strong>No ganaste $16,000.</strong> Ahora debes 100 acciones, valoradas en −$17,000.</li></ol>
+<div class="formula">Patrimonio ≈ 31,200 − 17,000 + 7,827.09 = 22,027.09<br>Resultado ≈ 22,027.09 − 20,000 = +2,027.09</div>
+<p>Pulsa <strong>“Cerrar todas las posiciones ahora”</strong>. El motor vende la call larga a BSM y recompra las acciones a $170. Verifica 0 acciones, 0 opciones y aproximadamente <strong>$22,027.09</strong> de efectivo final.</p>
+<div class="warn">La call larga NO se ejerce automáticamente para cubrir la corta en esta demostración. Se cierra a valor teórico, conservando su valor temporal en el modelo. En el mercado real importan costes, liquidez, financiación, préstamos de acciones y la gestión del bróker.</div>
+<h3>Demuestra también que puede perder</h3>
+<p>Nuevo ciclo idéntico → avanza a <strong>2026-12-11, precio $100</strong> → cierra todo. La corta vence sin ejercicio, pero la larga vale aproximadamente $2,214.45. Resultado del ciclo: <strong>−$2,585.55</strong>; efectivo final <strong>$17,414.45</strong>.</p>
+<div class="quote">“La prima cobrada amortigua parte de la caída, pero no convierte PMCC en una inversión segura.”</div>
+<p class="small">El botón “Forzar asignación de práctica” sirve para estudiar una asignación anticipada cuando la corta está ITM. No predice su probabilidad real.</p>
+</section>
+
+<section class="page">
+<div class="head">07 / PMCC · POR QUÉ NO HAY UN EQUILIBRIO FIJO TAN SENCILLO</div><h2>Dos vencimientos:<br>dos relojes distintos</h2>
+<p>En el vencimiento de la call corta, la larga aún tiene <strong>343 días</strong>. Por eso <strong>no</strong> puedes valorar ambas usando solo el intrínseco ni usar automáticamente $100 + $48 = $148 como equilibrio del primer mes.</p>
+<div class="formula">P/L al vencer la corta, si cierras todo ≈<br>100 × [valor de la call larga en esa fecha<br>       − max(S − 160, 0) − 48] − costes</div>
+<p>El valor de la larga depende del precio <strong>S</strong>, el tiempo restante, la volatilidad, la tasa y los dividendos supuestos. La fórmula es del conjunto, no de una sola call.</p>
+<table><tr><th>S al 11 dic 2026</th><th>Valor larga / contrato</th><th>P/L tras cerrar todo</th></tr><tr><td>$100</td><td>$2,214.45</td><td>−$2,585.55</td></tr><tr><td>$120</td><td>$3,603.92</td><td>−$1,196.08</td></tr><tr><td>$145</td><td>$5,618.22</td><td>+$818.22</td></tr><tr><td>$160</td><td>$6,926.11</td><td>+$2,126.11</td></tr><tr><td>$170</td><td>$7,827.09</td><td>+$2,027.09</td></tr></table>
+<p class="small">Tabla BSM del laboratorio, IV 54%, tasa 4%, dividend yield 0.03%, sin costes. Al $160 exacto, el simulador no ejerce la corta por no alcanzar $0.01 de intrínseco. La asignación real cerca del strike no es tan predecible.</p>
+<h3>Qué responder si te preguntan por el máximo beneficio</h3>
+<p>Mientras están ambas piernas, una subida fuerte también incrementa la obligación de la corta. En la fecha de su vencimiento, el resultado depende del valor que conserve la larga. <strong>No hay una cifra universal independiente de volatilidad y tiempo.</strong> Si dejas solo la larga después, ya analizas otra etapa con exposición alcista sin esa call vendida.</p>
+<div class="note">El débito neto es la pérdida máxima teórica de la diagonal inicial bajo gestión coherente de las piernas y sin costes. No significa que el bróker nunca vaya a exigir más efectivo ante una asignación ni cubre decisiones posteriores que cambien la posición.</div>
+</section>
+
+<section class="page">
+<div class="head">08 / CALL RATIO BACKSPREAD · LA ESTRUCTURA CORRECTA</div><h2>Vender una call.<br>Comprar dos calls superiores.</h2>
+<p>En este proyecto, <strong>Call Ratio</strong> significa <strong>Call Ratio Backspread 1:2</strong>: vendes 1 call de strike inferior y compras 2 calls de strike superior, <strong>con el mismo vencimiento</strong>.</p>
+<table><tr><th>Pierna</th><th>Ejemplo</th><th>Flujo inicial</th></tr><tr><td>Vender 1 call</td><td>Strike 140 · prima $12</td><td>+$1,200</td></tr><tr><td>Comprar 2 calls</td><td>Strike 150 · prima $7 cada una</td><td>−$1,400</td></tr><tr><td><strong>Débito neto</strong></td><td>(2 × $7 − $12) × 100</td><td><strong>−$200</strong></td></tr></table>
+<div class="formula">P/L al vencimiento = 100 × [2·max(S − 150, 0)<br>                           − max(S − 140, 0) − 2]</div>
+<p>Busca una <strong>subida suficientemente grande</strong>. A precios altos, tienes dos calls ganando contra una perdiendo: queda una exposición alcista neta. Pero una subida moderada puede caer justo en la zona de mayor pérdida.</p>
+<div class="two"><div class="note"><strong>Por debajo de $140</strong><br>Todas vencen sin valor. Pierdes solo el débito: $200 en este ejemplo.</div><div class="warn"><strong>En $150 al vencimiento</strong><br>La vendida pierde $1,000 de intrínseco y las dos compradas valen cero. Pérdida total: $1,200.</div></div>
+<h3>No confundas el nombre</h3>
+<p>Un ratio spread que <strong>compra 1 call y vende 2 calls superiores</strong> es la estructura contraria y puede tener riesgo alcista no acotado. <strong>No es la que estamos demostrando.</strong> Comprueba siempre signos, cantidades y strikes.</p>
+<div class="quote">“No basta con que suba. Tiene que subir lo suficiente para superar la zona de pérdida y el débito inicial.”</div>
+<p class="small">El backspread también puede abrirse con crédito, pero este ejercicio usa débito. Sus equilibrios y resultados por la parte baja no serían iguales.</p>
+</section>
+
+<section class="page">
+<div class="head">09 / CALL RATIO · LA GRÁFICA QUE DEBES SABER EXPLICAR</div><h2>El valle de pérdida</h2>
+<svg viewBox="0 0 660 250" aria-label="Resultado al vencimiento del backspread"><rect x="0" y="0" width="660" height="250" rx="8" fill="#f3f6f8"/><line x1="55" y1="130" x2="625" y2="130" stroke="#758799" stroke-dasharray="4 4"/><line x1="55" y1="10" x2="55" y2="210" stroke="#758799"/><line x1="55" y1="210" x2="625" y2="210" stroke="#758799"/><polyline points="70,143.33 180,143.33 290,210 400,143.33 422,130 510,76.67 620,10" fill="none" stroke="#d77525" stroke-width="4"/><circle cx="290" cy="210" r="5" fill="#b33434"/><circle cx="422" cy="130" r="5" fill="#32806c"/><text x="68" y="232" fill="#203249" font-size="14">130</text><text x="166" y="232" fill="#203249" font-size="14">140</text><text x="276" y="232" fill="#203249" font-size="14">150</text><text x="386" y="232" fill="#203249" font-size="14">160</text><text x="498" y="232" fill="#203249" font-size="14">170</text><text x="604" y="232" fill="#203249" font-size="14">180</text><text x="10" y="134" fill="#203249" font-size="14">$0</text><text x="235" y="195" fill="#9f3333" font-size="14">−$1,200</text><text x="430" y="120" fill="#286951" font-size="14">Equilibrio $162</text><text x="83" y="35" fill="#203249" font-size="14">P/L en USD · al vencimiento · sin comisiones</text></svg>
+<table><tr><th>Precio final S</th><th>Resultado por 1 base</th><th>Qué significa</th></tr><tr><td>$130 / $140</td><td>−$200</td><td>Se pierde el débito.</td></tr><tr><td>$145</td><td>−$700</td><td>La corta está ITM; las largas, no.</td></tr><tr><td>$150</td><td><strong>−$1,200</strong></td><td>Peor precio al vencimiento.</td></tr><tr><td>$155</td><td>−$700</td><td>Las largas ya amortiguan, aún no compensan.</td></tr><tr><td>$160</td><td>−$200</td><td>Subió, pero todavía no alcanza.</td></tr><tr><td>$162</td><td>$0</td><td>Equilibrio superior.</td></tr><tr><td>$170 / $180</td><td>+$800 / +$1,800</td><td>La subida amplia beneficia al conjunto.</td></tr></table>
+<div class="formula">Pérdida máxima = (150 − 140 + 2) × 100 = $1,200<br>Equilibrio superior = 2×150 − 140 + 2 = $162</div>
+<p><strong>Si S &gt; 150:</strong> P/L = 100 × (S − 162). Por cada $1 adicional sobre $162, el resultado aumenta $100 por contrato base, bajo estas condiciones al vencimiento.</p>
+<p class="small">La gráfica representa el perfil del ejemplo; no una trayectoria de precios ni probabilidades. Las cifras de la tabla y fórmulas son las referencias exactas.</p>
+</section>
+
+<section class="page">
+<div class="head">10 / CALL RATIO · DEMO A: ENSEÑA LA PÉRDIDA MÁXIMA</div><h2>El caso que convence:<br>subió y aun así perdió</h2>
+<p>En <strong>Ciclos de inversión → Nuevo ciclo</strong>, elige primero <strong>Call Ratio Backspread</strong> y luego <strong>NVDA</strong>. Verifica estos campos:</p>
+<table><tr><th>Campo</th><th>Valor</th></tr><tr><td>Capital del ciclo · USD / Contratos base</td><td>5000 / 1</td></tr><tr><td>Fecha inicial / Precio inicial simulado</td><td>2026-11-09 / 147.22</td></tr><tr><td>Días hasta vencimiento</td><td>32 → 2026-12-11</td></tr><tr><td>Strike de la call vendida / comprada</td><td>140 / 150</td></tr><tr><td>Prima call vendida / comprada</td><td>12 / 7, por acción</td></tr><tr><td>Volatilidad anual · % / Tasa en Configuración</td><td>54 / 4.0%</td></tr><tr><td>Comisiones contrato / acción</td><td>0 / 0</td></tr></table>
+<ol><li>Pulsa <strong>Revisar ciclo</strong>. Debe decir vender 1 CALL 140 y comprar <strong>2</strong> CALL 150 con el mismo vencimiento.</li><li>Confirma. Comprueba efectivo <strong>$4,800</strong>: $5,000 − $200.</li><li>En “Continúa el ciclo”, introduce <strong>2026-12-11</strong> y precio <strong>150</strong>. Pulsa <strong>Avanzar paso</strong>.</li><li>Abre el <strong>Historial del ciclo</strong>: la call corta se asigna; las dos calls 150 no se ejercen al estar exactamente en el strike en la regla educativa.</li><li>El motor liquida las acciones resultantes al completar este vencimiento. Debe decir <strong>Ciclo completado</strong>, 0 opciones, 0 acciones.</li></ol>
+<div class="formula">Efectivo inicial tras primas: $4,800<br>Venta de 100 acciones a strike 140: +$14,000<br>Recompra a precio 150: −$15,000<br>Efectivo final: $3,800 → resultado: −$1,200</div>
+<div class="warn">“Contratos base = 1” significa 1 vendida + 2 compradas, es decir, 3 contratos en total. Con 2 bases serían 2 vendidas + 4 compradas, y el riesgo monetario se duplica.</div>
+</section>
+
+<section class="page">
+<div class="head">11 / CALL RATIO · DEMO B: SUBIDA FUERTE Y EQUILIBRIO</div><h2>Ahora sí: la subida alcanza</h2>
+<p>Crea un <strong>nuevo ciclo idéntico</strong>; no avances un ciclo ya cerrado. Lleva la fecha a <strong>2026-12-11</strong> y el precio a <strong>$170</strong>.</p>
+<table><tr><th>Componente al vencimiento</th><th>Cálculo</th><th>Flujo / valor</th></tr><tr><td>Valor de 2 calls 150</td><td>2 × (170 − 150) × 100</td><td>+$4,000</td></tr><tr><td>Obligación de 1 call 140</td><td>−(170 − 140) × 100</td><td>−$3,000</td></tr><tr><td>Débito inicial</td><td>−$200</td><td>−$200</td></tr><tr><td><strong>Resultado</strong></td><td>4,000 − 3,000 − 200</td><td><strong>+$800</strong></td></tr></table>
+<h3>Qué hace físicamente el motor</h3>
+<p>Por la corta entregas/vendes 100 acciones a $140. Por las dos largas recibes/compras 200 acciones a $150. Quedan <strong>+100 acciones netas</strong> y el motor las vende a $170 para terminar sin exposición.</p>
+<div class="formula">4,800 + 14,000 − 30,000 + 17,000 = $5,800 finales<br>$5,800 − $5,000 de capital = +$800</div>
+<div class="note">Pueden aparecer saldos temporales negativos durante los registros de ejercicio. Son asientos educativos de liquidación: el simulador NO reproduce comprobaciones de margen ni reglas de financiación de un bróker.</div>
+<h3>Prueba de equilibrio y prueba de caída</h3>
+<ul><li><strong>Nuevo ciclo → $162 al vencimiento:</strong> resultado $0; efectivo final $5,000.</li><li><strong>Nuevo ciclo → $130 al vencimiento:</strong> todas las calls vencen sin ejercicio; pierdes $200; efectivo final $4,800.</li></ul>
+<p>Para documentar: captura el resultado final, la tabla de posiciones sin exposición y el historial. Usa el icono de descarga del encabezado del ciclo, <strong>“Exportar movimientos del ciclo”</strong>, para guardar su CSV.</p>
+<p class="small">No uses “Completar escenario” si necesitas exactamente $150, $162 o $170: esa función elige una trayectoria predefinida. Para estas cifras debes usar fecha/precio manuales y “Avanzar paso”.</p>
+</section>
+
+<section class="page">
+<div class="head">12 / COMPARA · Y EVITA LOS ERRORES MÁS COMUNES</div><h2>¿En qué se diferencian?</h2>
+<table><tr><th>Aspecto</th><th>PMCC</th><th>Call Ratio Backspread</th></tr><tr><td>Estructura</td><td>+1 call inferior lejana; −1 call superior cercana.</td><td>−1 call inferior; +2 calls superiores.</td></tr><tr><td>Vencimientos</td><td>Diferentes.</td><td>Iguales.</td></tr><tr><td>Idea central</td><td>Exposición alcista con venta de prima corta.</td><td>Buscar una subida suficientemente amplia.</td></tr><tr><td>Peligro didáctico</td><td>Confundir prima con ganancia o ignorar la asignación.</td><td>Creer que cualquier subida beneficia.</td></tr><tr><td>Valoración al primer vencimiento</td><td>La larga conserva tiempo: hace falta una valoración.</td><td>Se puede calcular con intrínsecos si todas vencen juntas.</td></tr><tr><td>Gestión posterior</td><td>Renovar corta, cerrar o resolver acciones asignadas.</td><td>En el laboratorio se liquidan las exposiciones al vencimiento común.</td></tr></table>
+<h3>Errores que debes poder corregir</h3>
+<ul class="checklist"><li><strong>“La prima fue $7, entonces pagué $7”.</strong> No: con multiplicador 100 pagaste $700 por contrato.</li><li><strong>“PMCC es una covered call idéntica a tener acciones”.</strong> No: la cobertura con una opción es imperfecta y tiene vencimiento.</li><li><strong>“Backspread arriesga solo $200 porque ese fue el débito”.</strong> No: en este ejemplo puede perder $1,200 al vencimiento.</li><li><strong>“El ranking prueba qué empresa será rentable”.</strong> No: es compatibilidad heurística con datos de muestra, no backtesting.</li><li><strong>“Las velas son datos reales”.</strong> No: son sintéticas. Sus fechas no hacen que estos ejercicios sean históricos reales.</li></ul>
+<div class="warn">En vivo faltaría considerar spreads bid/ask, comisiones, deslizamiento, disponibilidad de contratos, dividendos, ejercicio anticipado, vencimientos negociables, riesgo cerca del strike y requisitos de margen. El laboratorio no es un sistema listo para dinero real.</div>
+</section>
+
+<section class="page">
+<div class="head">13 / EXPOSICIÓN · GUION DE 8–10 MINUTOS</div><h2>Cómo demostrarlo ante el grupo</h2>
+<table><tr><th>Tiempo</th><th>Qué muestras</th><th>Qué dices, en tus palabras</th></tr><tr><td>0:00–1:00</td><td>Modo simulación y conceptos.</td><td>“Son opciones de práctica. Un contrato representa 100 acciones; la prima se muestra por acción.”</td></tr><tr><td>1:00–2:00</td><td>Revisión PMCC: +1 call 100 y −1 call 160.</td><td>“La larga vence después. Pago $5,200 y recibo $400: débito neto $4,800.”</td></tr><tr><td>2:00–3:00</td><td>PMCC a $145; call larga disponible.</td><td>“La corta vence sin ejercicio. La larga todavía tiene valor temporal; no puedo decir que mi resultado es solo la prima.”</td></tr><tr><td>3:00–4:00</td><td>PMCC independiente a $170; −100 acciones; luego cerrar.</td><td>“La asignación no desaparece por tener una call larga. El efectivo subió, pero también tengo una obligación en acciones.”</td></tr><tr><td>4:00–5:00</td><td>Revisión backspread: −1 call 140, +2 calls 150.</td><td>“Mismo vencimiento. El débito es $200, pero no es la pérdida máxima.”</td></tr><tr><td>5:00–6:30</td><td>Backspread a $150: −$1,200.</td><td>“Aquí está el valle de pérdida: la corta tiene intrínseco y las largas aún no.”</td></tr><tr><td>6:30–8:00</td><td>Backspread nuevo a $170: +$800.</td><td>“Dos calls ganan $4,000; una pierde $3,000; descuento el débito de $200.”</td></tr><tr><td>8:00–9:00</td><td>CSV y límites de la simulación.</td><td>“Podemos auditar primas, asignaciones y cierres, pero no afirmar rentabilidad real ni ejecución de bróker.”</td></tr></table>
+<h3>Checklist antes de presentar</h3>
+<ul class="checklist"><li>Servidor abierto, proyecto extraído e instalado; navegador con la terminal cargada.</li><li>Tasa 4%, NVDA, IV 54%, 1 contrato base, comisiones cero.</li><li>Conoce dónde están “Nuevo ciclo”, “Revisar ciclo”, fecha/precio y exportación.</li><li>No gastes todo el capital disponible en ciclos abiertos: cierra los anteriores o prepara los casos con antelación.</li><li>Ten esta guía y los CSV como respaldo si el navegador tarda.</li></ul>
+<p class="small">Para no saturar la explicación, prepara los ciclos previamente y selecciónalos en “MIS CICLOS”. Sus datos permanecen en ese navegador; no se comparten automáticamente en el ZIP.</p>
+</section>
+
+<section class="page">
+<div class="head">14 / PRÁCTICA · INTÉNTALO ANTES DE VER LAS RESPUESTAS</div><h2>Apréndetelas haciendo cuentas</h2>
+<h3>Ejercicio 1 · Multiplicador</h3><p>Compras 2 calls a prima $7 y vendes 1 a prima $12. ¿Cuál es el débito total? ¿Cuántos contratos hay realmente?</p>
+<h3>Ejercicio 2 · Identifica la estructura</h3><p>¿Cuál es PMCC? A: comprar 1 call 100 a 375 días y vender 1 call 160 a 32 días. B: vender 1 call 140 y comprar 2 calls 150, todas a 32 días. Explica qué cambia.</p>
+<h3>Ejercicio 3 · Backspread a $155</h3><p>Con strikes 140/150 y débito de $2 por acción, calcula el resultado al vencimiento. Haz primero las dos calls largas, luego resta la corta y el débito.</p>
+<h3>Ejercicio 4 · Riesgo y equilibrio</h3><p>¿Por qué la pérdida máxima es $1,200 y no $200? ¿A qué precio se alcanza? ¿Dónde queda el equilibrio superior?</p>
+<h3>Ejercicio 5 · Escala</h3><p>Con 2 contratos base del mismo backspread, ¿cuántas calls vendes y compras? ¿Cuál sería la pérdida máxima sin comisiones?</p>
+<h3>Ejercicio 6 · PMCC y patrimonio</h3><p>Tras asignación a $170 tienes efectivo $31,200, −100 acciones y una call larga que vale $7,827.09. Con capital $20,000, ¿cuál es el resultado total?</p>
+<h3>Ejercicio 7 · Explica el valor temporal</h3><p>La call larga PMCC tiene strike 100 y la acción vale $145. ¿Por qué puede valer $56.18 por acción en vez de $45?</p>
+<h3>Ejercicio 8 · Haz tu mini exposición</h3><p>En 60 segundos, explica cuál estrategia usa dos vencimientos, cuál necesita una subida grande y por qué ninguna prima cobrada garantiza beneficio.</p>
+<div class="note"><strong>Plan de estudio de 45 minutos:</strong> 10 min conceptos y estructura; 10 min PMCC a $145 y $170; 10 min backspread a $150 y $170; 10 min ejercicios; 5 min explicar sin leer. Repite las demostraciones al día siguiente.</div>
+</section>
+
+<section class="page">
+<div class="head">15 / SOLUCIONES · INSTALACIÓN PARA TUS COMPAÑEROS</div><h2>Comprueba tus respuestas</h2>
+<ol><li><strong>Débito:</strong> (2×7 − 12)×100 = $200. Son 3 contratos en total.</li><li><strong>A es PMCC</strong> por sus strikes y fechas diferentes; B es backspread 1:2 con vencimiento común.</li><li><strong>A $155:</strong> 2×5×100 − 15×100 − 200 = <strong>−$700</strong>.</li><li><strong>Máxima pérdida:</strong> la corta pierde $1,000 en $150 y las largas valen cero; sumas $200 de débito. Equilibrio: <strong>$162</strong>.</li><li><strong>2 bases:</strong> vender 2 calls y comprar 4. Pérdida máxima <strong>$2,400</strong>, sin costes.</li><li><strong>Patrimonio:</strong> 31,200 − 17,000 + 7,827.09 = 22,027.09. Beneficio <strong>$2,027.09</strong>.</li><li><strong>Temporal:</strong> aún quedan 343 días, así que la larga conserva valor adicional al intrínseco. Su precio depende del modelo y sus supuestos.</li><li><strong>Resumen:</strong> PMCC vende plazo corto contra una call larga lejana; backspread vende 1 y compra 2 buscando movimiento amplio. Prima recibida es flujo de caja, no resultado total.</li></ol>
+<h3>Cómo abrir el proyecto compartido</h3>
+<p>Extrae el ZIP completo. Instala <strong>Node.js 24 LTS</strong> y abre una terminal en la carpeta <strong>tepic-terminal</strong>, donde está <code>package.json</code>. Ejecuta:</p>
+<div class="formula">npm ci<br>npm run dev</div>
+<p>Abre la URL indicada (normalmente <strong>http://localhost:5173</strong>). Mantén la terminal abierta. Se requiere internet para descargar dependencias la primera vez; no se incluyen <code>node_modules</code> ni un ejecutable de Windows.</p>
+<p class="small">Comprobaciones: <code>npm test</code> y <code>node scripts/verify-learning-examples.mjs</code>. Las primas, posiciones y cifras de esta guía fueron contrastadas con el motor del proyecto. Una diferencia de centavos puede deberse al redondeo; diferencias grandes suelen indicar parámetros distintos.</p>
+<h3>Fuentes para profundizar</h3>
+<div class="sources"><p><strong>Fidelity / The Options Institute (CBOE):</strong> Long diagonal spread with calls.<br><a href="https://www.fidelity.com/learning-center/investment-products/options/options-strategy-guide/long-diagonal-spread-calls">fidelity.com → Options Strategy Guide → Long diagonal spread with calls</a></p><p><strong>Options Industry Council:</strong> Long Ratio Call Spread (estructura de backspread).<br><a href="https://www.optionseducation.org/strategies/all-strategies/long-ratio-call-spread">optionseducation.org/strategies/all-strategies/long-ratio-call-spread</a></p><p><strong>OCC:</strong> Characteristics and Risks of Standardized Options.<br><a href="https://www.theocc.com/Company-Information/Documents-and-Archives/Options-Disclosure-Document">theocc.com → Options Disclosure Document</a></p></div>
+<p class="tiny">Fuentes consultadas el 11/11/2026. Explicación original adaptada al simulador; no implica afiliación a esas entidades. Todos los resultados numéricos aquí mostrados son ejercicios, no cotizaciones, predicciones ni rendimiento histórico.</p>
+</section>
+<script>document.querySelectorAll('.page').forEach((page,i,pages)=>{const footer=document.createElement('div');footer.className='foot';footer.innerHTML='<span>TEPIC · Guía educativa · PMCC y Backspread 1:2</span><span>'+(i+1)+' / '+pages.length+'</span>';page.appendChild(footer);});</script>
+</body></html>
