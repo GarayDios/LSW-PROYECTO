@@ -6,6 +6,13 @@ const [command, ...args] = process.argv.slice(2);
 if (!["dev", "build"].includes(command)) throw new Error("Expected dev or build.");
 const managedLinux = readExecutionProfile() === "managed-linux";
 
+// Local secrets stay in Node at runtime, never in the client build or hosting manifest.
+if (!managedLinux && command === "dev") {
+  const { existsSync } = await import("node:fs");
+  const localEnvironment = fileURLToPath(new URL("../.env.local", import.meta.url));
+  if (existsSync(localEnvironment)) process.loadEnvFile(localEnvironment);
+}
+
 if (managedLinux && command === "build") {
   const result = spawnSync("bash", [
     fileURLToPath(new URL("./build-verified.sh", import.meta.url)), ...args,

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import PwaRegister from "../components/pwa-register";
+import PwaRegister from "../src/components/pwa/pwa-register";
 
 export const metadata: Metadata = {
   title: "TEPIC · Options Lab",

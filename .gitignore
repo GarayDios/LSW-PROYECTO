@@ -28,8 +28,15 @@ yarn-error.log*
 
 # Local environment and keys
 .env*
+!.env.example
 .dev.vars*
 *.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
 # Checkout-local tool state
 /.wrangler/

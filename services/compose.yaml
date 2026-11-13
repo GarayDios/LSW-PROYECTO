@@ -1,0 +1,43 @@
+services:
+  trading-runner:
+    build:
+      context: ..
+      dockerfile: services/trading-runner/Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file: ../.env.trading.local
+    environment:
+      TRADING_RUNNER_HOST: 0.0.0.0
+      TRADING_RUNNER_PORT: 8790
+      TRADING_RUNNER_DB: /data/trading-runner.sqlite
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - trading-data:/data
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  mongo-api:
+    profiles: [mongo]
+    build:
+      context: ..
+      dockerfile: services/mongo-api/Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file: ../.env.mongo.local
+    environment:
+      MONGO_BRIDGE_HOST: 0.0.0.0
+      MONGO_BRIDGE_PORT: 8788
+    ports:
+      - "127.0.0.1:8788:8788"
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  trading-data:

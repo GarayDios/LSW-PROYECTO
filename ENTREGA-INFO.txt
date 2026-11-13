@@ -1,2 +1,3 @@
 Proyecto educativo TEPIC. Empieza por LEEME-PARA-COMPARTIR.md.
+Mapa de carpetas: docs/arquitectura/estructura-del-proyecto.md.
 Se omiten dependencias instaladas, cachés, credenciales y datos locales.

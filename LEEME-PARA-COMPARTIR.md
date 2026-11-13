@@ -19,9 +19,11 @@ La primera instalación requiere internet. Si PowerShell bloquea `npm.ps1`, usa 
 
 ## Guía para aprender y demostrar
 
-Abre **`docs/Guia-PMCC-Call-Ratio-Desde-Cero.pdf`**. Incluye fundamentos, cantidades exactas para los formularios, ejemplos PMCC a $145 y $170, caso de pérdida, backspread a $150/$162/$170, guion de exposición y ejercicios resueltos. El HTML editable está en `docs/guia-pmcc-call-ratio-desde-cero.html` y puede imprimirse con un navegador.
+Abre **`docs/guias/Guia-PMCC-Call-Ratio-Desde-Cero.pdf`**. Incluye fundamentos, cantidades exactas para los formularios, ejemplos PMCC a $145 y $170, caso de pérdida, backspread a $150/$162/$170, guion de exposición y ejercicios resueltos. El HTML editable está en `docs/guias/guia-pmcc-call-ratio-desde-cero.html` y puede imprimirse con un navegador.
 
 En el menú **Ciclos de inversión → Nuevo ciclo**, selecciona estrategia y empresa antes de modificar otros parámetros. Las selecciones cargan valores por defecto. Para replicar la guía usa NVDA, 1 contrato base, tasa 4%, volatilidad 54% y comisiones cero. La guía explica cada campo.
+
+Para modificar el proyecto, consulta [el mapa de carpetas](docs/arquitectura/estructura-del-proyecto.md). Los cores están en `src/cores/`, las APIs y conectores en `src/api/` y cada función del terminal en `src/features/`.
 
 ## Comprobación
 
@@ -32,7 +34,7 @@ npm run build
 node scripts/verify-learning-examples.mjs
 ```
 
-Las pruebas opcionales `npm run test:browser`, `npm run test:browser -- features` y `npm run test:browser -- cycles` requieren servidor levantado y Chrome en Windows; `CHROME_BIN` permite cambiar su ruta y `QA_URL` la URL del servidor. Ejecútalas una por una, ya que usan el mismo puerto de depuración.
+Las pruebas opcionales `npm run test:browser`, `npm run test:browser -- features`, `npm run test:browser -- cycles`, `npm run test:browser -- history` y `npm run test:browser -- persistence` requieren servidor levantado y Chrome en Windows; `CHROME_BIN` permite cambiar su ruta y `QA_URL` la URL del servidor. Ejecútalas una por una, ya que usan el mismo puerto de depuración. `history` y `persistence` usan respuestas simuladas para revisar la interfaz sin claves ni proyectos remotos.
 
 ## Qué incluye y qué no
 
@@ -40,8 +42,8 @@ Las pruebas opcionales `npm run test:browser`, `npm run test:browser -- features
 - Incluye PMCC, Call Ratio Backspread 1:2, Wheel y Gamma Scalping de práctica; siete cores, gráfico de velas sintéticas y comparador de empresas.
 - No incluye `node_modules`, Git, builds, cachés, credenciales, estados de Wrangler ni perfiles del navegador.
 - El ZIP usa una configuración de hosting local genérica; no otorga acceso al proyecto de despliegue del autor.
-- **Listas, órdenes y ciclos se guardan en el navegador de cada persona.** No se transfieren con el ZIP ni se sincronizan entre compañeros.
-- Datos simulados y precios elegidos manualmente. No envía órdenes reales ni contiene conexión a bróker, backtesting o cálculo de margen real.
+- Sin configuración remota, listas, órdenes y ciclos se guardan en el navegador de cada persona y no se transfieren con el ZIP. La integración opcional de Supabase y MongoDB se configura siguiendo [esta guía](docs/base-de-datos/configuracion.md); las credenciales y los datos de una cuenta no se incluyen en el ZIP.
+- Los ciclos F5 siguen siendo simulaciones. El modo Alpaca usa velas y contratos reales para el análisis y el ranking, con procedencia y exclusiones si faltan datos. Hay comparación temporal de reglas accionarias, seguimiento Paper, salidas por reglas o bracket GTC, pausa de entradas y riesgo de cuenta. No se ejecutan opciones ni dinero real. Consulta [el estado y los pendientes](docs/cambios/ciclo-operativo-y-datos.md) y [riesgo y ejecución](docs/integraciones/riesgo-y-ejecucion.md).
 
 `npm run dev` es la vía de ejecución local para esta entrega. El script `npm start` del proyecto está relacionado con despliegue Cloudflare y no es necesario para esta demostración.
 

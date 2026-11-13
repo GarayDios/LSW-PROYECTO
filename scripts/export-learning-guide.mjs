@@ -23,7 +23,7 @@ try {
   function send(method,params={}){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));setTimeout(()=>{if(pending.has(n)){pending.delete(n);reject(Error(`Timeout ${method}`));}},30000).unref();});}
   async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
   await send('Page.enable');
-  await send('Page.navigate',{url:pathToFileURL(path.join(root,'docs','guia-pmcc-call-ratio-desde-cero.html')).href});
+  await send('Page.navigate',{url:pathToFileURL(path.join(root,'docs','guias','guia-pmcc-call-ratio-desde-cero.html')).href});
   for(let i=0;i<100;i++){if(await evaluate(`document.readyState==='complete' && document.querySelectorAll('.foot').length===16`))break;await delay(100);}
   await evaluate('document.fonts.ready.then(()=>true)');
   const checks=await evaluate(`Array.from(document.querySelectorAll('.page')).map((p,i)=>{const f=p.querySelector('.foot').getBoundingClientRect();const content=Array.from(p.children).filter(c=>!c.classList.contains('foot')).map(c=>c.getBoundingClientRect().bottom);return {page:i+1,overflow:p.scrollHeight>p.clientHeight+2,contentBottom:Math.max(...content),footerTop:f.top,clearance:Math.round(f.top-Math.max(...content))};})`);
@@ -34,7 +34,7 @@ try {
   const screenshot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   await writeFile(path.join(root,'outputs','guide-cover.png'),Buffer.from(screenshot.data,'base64'));
   const pdf=await send('Page.printToPDF',{printBackground:true,preferCSSPageSize:true,displayHeaderFooter:false});
-  const destination=path.join(root,'docs','Guia-PMCC-Call-Ratio-Desde-Cero.pdf');
+  const destination=path.join(root,'docs','guias','Guia-PMCC-Call-Ratio-Desde-Cero.pdf');
   await writeFile(destination,Buffer.from(pdf.data,'base64'));
   const buffer=await readFile(destination);
   assert.equal(buffer.subarray(0,5).toString(),'%PDF-');

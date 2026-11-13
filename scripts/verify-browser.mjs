@@ -21,10 +21,281 @@ try{
   async function click(text){const clicked=await evaluate(`(()=>{const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)});if(e){e.click();return true;}return false;})()`);assert(clicked,'Missing button '+text);await delay(150);}
   async function input(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('input[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Missing input '+label);await delay(100);}
   async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
-  await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:baseURL+'/'});
+  await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  if(mode==='persistence'){
+    // Exercise the real UI in isolation. Only its persistence endpoint is mocked;
+    // HTML, scripts, rendering and user interactions come from the running app.
+    function installPersistenceQA(){
+      const serverKey='tepic-qa-persistence-server';
+      const legacyKey='tepic-terminal-v1';
+      const read=()=>JSON.parse(sessionStorage.getItem(serverKey));
+      const write=value=>sessionStorage.setItem(serverKey,JSON.stringify(value));
+      const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+      if(!sessionStorage.getItem(serverKey)){
+        const initial={lists:[
+          {id:'favorites',name:'Mi seguimiento',symbols:['NVDA','AAPL','MSFT','AMZN','GOOGL','META','TSLA','AMD']},
+          {id:'technology',name:'Tecnología',symbols:['NVDA','AAPL','MSFT','GOOGL','META','AMD']},
+          {id:'browser-extra',name:'Lista local de prueba',symbols:['NVDA']},
+        ],orders:[],cycles:[],rate:.04};
+        localStorage.setItem(legacyKey,JSON.stringify(initial));
+        write({revision:0,state:null,puts:0,attempts:[],active:0,maxActive:0,conflictNext:false,originalLegacy:localStorage.getItem(legacyKey)});
+      }
+      window.__tepicPersistenceQA={
+        inspect:read,
+        conflict:()=>{const server=read();server.conflictNext=true;write(server);},
+      };
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.origin!==location.origin||url.pathname!=='/api/persistence')return originalFetch(input,init);
+        const method=(init?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
+        if(method==='GET'){
+          await wait(1000);
+          const server=read();
+          return Response.json({mode:'remote',owner:{id:'qa-owner',displayName:'Cuenta de prueba'},revision:server.revision,state:server.state,archive:{enabled:true,pending:0}});
+        }
+        if(method!=='PUT')return Response.json({error:{code:'unsupported'}},{status:405});
+        const body=JSON.parse(init.body);
+        const server=read();
+        server.puts++;
+        server.active++;
+        server.maxActive=Math.max(server.maxActive,server.active);
+        server.attempts.push({expectedRevision:body.expectedRevision,rate:body.state.rate});
+        let conflict=body.expectedRevision!==server.revision;
+        if(server.conflictNext){
+          server.conflictNext=false;
+          server.revision++;
+          server.state={...server.state,rate:.03};
+          conflict=true;
+        }
+        if(!conflict){server.revision++;server.state=body.state;}
+        write(server);
+        await wait(350);
+        const settled=read();settled.active--;write(settled);
+        return conflict
+          ?Response.json({error:{code:'revision_conflict',message:'Datos modificados en otra sesión.'}},{status:409})
+          :Response.json({revision:server.revision,archive:{enabled:true,pending:0}});
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
+  }
+  if(mode==='history'||mode==='automation'||mode==='comparison'){
+    // A tagged provider fixture checks the real chart and controls without
+    // claiming a live Alpaca connection or requiring trading credentials.
+    function installHistoryQA(){
+      const qa=window.__tepicHistoryQA={fail:false,calls:[]};
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.origin!==location.origin)return originalFetch(input,init);
+        if(url.pathname==='/api/market/company')return Response.json({source:'alpaca',symbol:url.searchParams.get('symbol'),name:'Empresa de prueba de la API',exchange:'NASDAQ',tradable:true,assetClass:'us_equity'});
+        if(url.pathname!=='/api/market/history')return originalFetch(input,init);
+        const query=Object.fromEntries(url.searchParams);
+        qa.calls.push(query);
+        await new Promise(resolve=>setTimeout(resolve,80));
+        if(qa.fail)return Response.json({error:{code:'market_access_denied',message:'Prueba: el proveedor rechazó el acceso al histórico.'}},{status:403});
+        const bars=[];let index=0;
+        for(let day=Date.parse(query.start);day<=Date.parse(query.end);day+=86400000){
+          const weekday=new Date(day).getUTCDay();
+          if(weekday===0||weekday===6)continue;
+          const close=120+15*Math.sin(index/25)+4*Math.sin(index*1.7)+index*.015;
+          const open=close+Math.sin(index*.9)*1.2;
+          bars.push({time:day+15*3600000,open,close,high:Math.max(open,close)+1.5,low:Math.min(open,close)-1.5,volume:10000+index*17});
+          index++;
+        }
+        return Response.json({...query,source:'alpaca',feed:'iex',adjustment:'split',asOf:new Date().toISOString(),bars,warnings:['Prueba de interfaz: proveedor simulado, sin conexión real.'],coverage:{firstBar:bars.length?new Date(bars[0].time).toISOString():null,lastBar:bars.length?new Date(bars.at(-1).time).toISOString():null,requestedStart:query.start,requestedEnd:query.end}});
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installHistoryQA.toString()})();`});
+  }
+  if(mode==='automation'||mode==='comparison'){
+    // Every plan mutation is intercepted. This mode never reaches the real runner.
+    function installAutomationQA(){
+      const qa=window.__tepicAutomationQA={actions:[],paused:false,plans:[{id:'e8bdfaf4-6066-43ba-988d-a92b28013f7e',symbol:'NVDA',historyYears:3,startDate:'2026-11-09',endDate:'2026-12-11',maxOrderUsd:100,maxPositionUsd:1000,enabled:false}]};
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.origin!==location.origin)return originalFetch(input,init);
+        if(url.pathname==='/api/broker/status')return Response.json({alpaca:{configured:true,ownerAuthorized:true,mode:'paper'},webull:{supported:false,requiresApproval:true},automation:{configured:true,enabled:true},identity:{userId:'qa-owner'}});
+        if(url.pathname!=='/api/automation')return originalFetch(input,init);
+        if((init?.method??'GET')==='GET'){
+          const resource=url.searchParams.get('resource');
+          if(resource==='status')return Response.json({mode:'paper',configured:true,enabled:true,available:true,running:false,maxOrderUsd:1000,buyOnly:true});
+          if(resource==='plans')return Response.json({plans:qa.plans});
+          if(resource==='events')return Response.json({events:[]});
+          if(resource==='executions')return Response.json({executions:[]});
+          if(resource==='positions')return Response.json({positions:[]});
+          if(resource==='risk')return Response.json({risk:{paused:qa.paused,date:'2026-11-13',equityStartUsd:10000,equityUsd:10000,dailyPnlUsd:0,ownedExposureUsd:0,totalExposureUsd:0,reservedEntryUsd:0,limits:{maxDailyLossUsd:null,maxTotalExposureUsd:null},dailyLossBlocked:false,exposureBlocked:false,uncertain:false,updatedAt:'2026-11-13T16:00:00Z'}});
+          return Response.json({error:{message:'Unsupported QA resource'}},{status:400});
+        }
+        const action=JSON.parse(init.body);qa.actions.push(action);
+        if(action.action==='pause'||action.action==='resume'){qa.paused=action.action==='pause';return Response.json({paused:qa.paused});}
+        if(action.action==='create'){
+          const plan={...action.plan,id:crypto.randomUUID(),enabled:false};qa.plans.push(plan);return Response.json({plan},{status:201});
+        }
+        const plan=qa.plans.find(value=>value.id===action.planId);
+        if(plan&&(action.action==='enable'||action.action==='disable')){plan.enabled=action.action==='enable';return Response.json({plan});}
+        return Response.json({error:{message:'Unsupported QA action'}},{status:400});
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installAutomationQA.toString()})();`});
+  }
+  if(mode==='comparison'){
+    function installComparisonQA(){
+      const qa=window.__tepicComparisonQA={calls:[]};
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.pathname!=='/api/research/comparison')return originalFetch(input,init);
+        const body=JSON.parse(init.body);qa.calls.push(body);
+        const stability={method:'expanding-window-fixed-rule',folds:[{startTime:Date.parse('2026-04-01'),endTime:Date.parse('2026-06-30'),returnPct:-3,buyHoldReturnPct:-2,maxDrawdownPct:5,completedTrades:2,wins:0,openPosition:false}],completedTrades:2,wins:0,historicalWinRate:0,winRateInterval95:{low:0,high:.65},minimumTrades:30,sufficientSample:false,positiveFolds:0,compoundedReturnPct:-3,compoundedBuyHoldReturnPct:-2,feeBps:body.feeBps,slippageBps:body.slippageBps,warnings:['Fixture de navegador: muestra insuficiente.']};
+        return Response.json({source:'alpaca:iex · QA simulado',cutoff:body.end,generatedAt:new Date().toISOString(),feeBps:body.feeBps,slippageBps:body.slippageBps,rows:[{symbol:body.symbols[0],years:body.years[0],rule:'sma-cross',label:'SMA20/50 sin filtro RSI',observations:252,firstBar:'2025-11-10',lastBar:'2026-11-09',validationStartTime:Date.parse('2026-07-01'),returnPct:-7.25,buyHoldReturnPct:-4,maxDrawdownPct:12,completedTrades:2,openPosition:true,stability}],excluded:[{symbol:'MSFT',years:5,reason:'Histórico incompleto simulado.'}],warnings:['Prueba de interfaz, sin consultar un bróker.']});
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
+  }
+  await send('Page.navigate',{url:baseURL+'/'});
+  if(mode==='persistence'){
+    await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
+    assert(await evaluate(`!!document.querySelector('.persistence-loading-overlay [role="status"]')`),'Loading status remains accessible outside inert terminal');
+  }
   await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.market-chart') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
-  if(mode==='screenshots'){
+  if(mode==='persistence'){
+    const inspect=()=>evaluate('window.__tepicPersistenceQA.inspect()');
+    async function changeRate(value){
+      assert(await evaluate(`(()=>{const input=document.querySelector('.modal input[type="number"]');if(!input)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(String(value))});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Rate input exists');
+    }
+    await until(`!!document.querySelector('.persistence-needs-import')`);
+    assert.equal((await inspect()).puts,0,'No upload before import choice');
+    assert.equal(await evaluate(`document.querySelectorAll('.watchlists .watchlist').length`),2,'Unimported browser list is not assigned to cloud user');
+    assert(await evaluate(`!document.querySelector('.terminal-app').inert`),'Import choice is interactive once account lookup finishes');
+    await click('Importar datos de este navegador');
+    await until(`!!document.querySelector('.persistence-synced')`);
+    assert.equal((await inspect()).revision,1);
+    assert((await inspect()).state.lists.some(list=>list.id==='browser-extra'),'Explicit import saves the legacy list');
+    assert.equal(await evaluate(`document.querySelectorAll('.watchlists .watchlist').length`),3);
+    assert.equal(await evaluate(`localStorage.getItem('tepic-terminal-v1')`),(await inspect()).originalLegacy,'Import preserves original browser data');
+    await click('Configuración');
+    await until(`!!document.querySelector('.modal input[type="number"]')`);
+    await changeRate(5);
+    await until(`window.__tepicPersistenceQA.inspect().puts===2 && window.__tepicPersistenceQA.inspect().active===1`);
+    await changeRate(6);
+    await until(`window.__tepicPersistenceQA.inspect().revision===3 && !!document.querySelector('.persistence-synced')`);
+    const afterEdits=await inspect();
+    assert.equal(afterEdits.state.rate,.06);
+    assert.equal(afterEdits.maxActive,1,'Pending saves are serialized');
+    assert.deepEqual(afterEdits.attempts.map(attempt=>attempt.expectedRevision),[0,1,2]);
+    await click('Listo');
+    await evaluate('window.__tepicPersistenceQA.conflict()');
+    await click('Configuración');
+    await changeRate(7);
+    await until(`!!document.querySelector('.persistence-conflict')`);
+    await click('Listo');
+    assert.equal((await inspect()).state.rate,.03,'The conflicting draft does not overwrite cloud data');
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner')).state.rate`),.07,'Conflict keeps local draft');
+    assert(await evaluate(`Array.from(document.querySelectorAll('.persistence-actions button')).some(button=>button.textContent==='Descargar borrador')`));
+    await click('Cargar datos de la cuenta');
+    await until(`!!document.querySelector('.persistence-synced')`);
+    await click('Configuración');
+    assert.equal(await evaluate(`document.querySelector('.modal input[type="number"]').value`),'3','Explicit reload loads the authoritative account state');
+    await click('Listo');
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner')).state.rate`),.07,'Remote reload leaves earlier draft available');
+    await send('Page.reload');
+    await until(`!!document.querySelector('.persistence-synced')`);
+    assert.equal((await inspect()).puts,4,'Reload does not import or upload records again');
+    await screenshot('persistence-desktop.png',1440,1000);await screenshot('persistence-mobile.png',390,844);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Persistence UI fits mobile');
+    console.log('PASS: simulated persistence API, loading guard, explicit legacy import, sequential revision saves, conflict draft, account reload and mobile. No live database connection is claimed.');
+  }else if(mode==='automation'){
+    await until(`document.querySelectorAll('.broker-plan').length===1`);
+    assert.equal(await evaluate(`document.querySelector('.broker-plan button').disabled`),false,'Matching disabled plan can be reviewed for activation');
+    await input('Fecha de inicio de operación','2026-11-10');
+    await until(`document.querySelector('.broker-plan button').disabled && document.querySelector('.broker-plan').textContent.includes('El rango cambió')`);
+    await evaluate(`document.querySelector('.broker-plan button').click()`);
+    assert.equal(await evaluate('window.__tepicAutomationQA.actions.length'),0,'Changing the range cannot activate the old dates');
+    await evaluate(`(()=>{const input=document.querySelector('select[aria-label="Fuente del histórico"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(input,'alpaca');input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await until(`!!document.querySelector('.market-chart') && !Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Preparar plan Paper desactivado').disabled`);
+    await click('Preparar plan Paper desactivado');
+    await until(`document.querySelectorAll('.broker-plan').length===2`);
+    const created=await evaluate('window.__tepicAutomationQA.actions[0]');
+    assert.equal(created.action,'create');assert.equal(created.plan.startDate,'2026-11-10');assert.equal(created.plan.endDate,'2026-12-11');
+    assert.equal(await evaluate(`document.querySelector('.broker-plan:first-child button').disabled`),true);
+    assert.equal(await evaluate(`document.querySelector('.broker-plan:last-child button').disabled`),false);
+    await evaluate(`document.querySelector('.broker-plan:last-child button').click()`);
+    await until(`document.querySelector('.broker-plan:last-child button').textContent==='Desactivar plan'`);
+    await input('Fecha de inicio de operación','2026-11-11');
+    assert.equal(await evaluate(`document.querySelector('.broker-plan:last-child button').disabled`),false,'Stopping remains available after changing dates');
+    await click('Desactivar plan');
+    await until(`window.__tepicAutomationQA.actions.length===3`);
+    assert.deepEqual(await evaluate('window.__tepicAutomationQA.actions.map(value=>value.action)'),['create','enable','disable']);
+    assert.equal(await evaluate(`document.querySelector('.broker-plan:last-child button').disabled`),true,'Stopped plan with outdated range cannot be reactivated');
+    await evaluate(`Array.from(document.querySelectorAll('.broker-checkbox')).find(label=>label.textContent.includes('Preparar salidas automáticas')).querySelector('input').click()`);
+    await evaluate(`(()=>{const e=document.querySelector('select[aria-label="Modalidad de salidas"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,'bracket');e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await evaluate(`(()=>{for(const [label,value] of [['Stop loss (%)','5'],['Take profit (%)','10']]){const e=Array.from(document.querySelectorAll('.broker-plan-fields label')).find(e=>e.textContent.includes(label)).querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
+    await click('Preparar plan Paper desactivado');await until(`document.querySelectorAll('.broker-plan').length===3`);
+    const bracket=await evaluate('window.__tepicAutomationQA.actions.at(-1).plan.exitPolicy');
+    assert.equal(bracket.execution,'bracket');assert.equal(bracket.stopLossPct,5);assert.equal(bracket.takeProfitPct,10);assert.equal(bracket.closeAtEnd,false);
+    await click('Pausar nuevas entradas');await until(`window.__tepicAutomationQA.paused && document.querySelector('.broker-risk-status').textContent.includes('Reanudar planes habilitados')`);
+    assert(await evaluate(`document.querySelector('.broker-risk-status').textContent.includes('mantiene las salidas')`));
+    console.log('PASS: automation UI dates, disabled plans, activation, stop, opt-in bracket policy and entry pause. All plan mutations were simulated; no broker orders were sent.');
+  }else if(mode==='comparison'){
+    assert(await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Comparar empresas y periodos').disabled`));
+    await evaluate(`(()=>{const input=document.querySelector('select[aria-label="Fuente del histórico"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(input,'alpaca');input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await until(`!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Comparar empresas y periodos').disabled`);
+    await input('Empresas para comparar','AAPL, MSFT');await click('Comparar empresas y periodos');
+    await until(`document.querySelector('.comparison-panel .validation-table')`);
+    assert.deepEqual(await evaluate('window.__tepicComparisonQA.calls[0].symbols'),['AAPL','MSFT']);
+    assert(await evaluate(`document.querySelector('.comparison-panel').textContent.includes('-7.25%')`),'Negative returns remain visible');
+    assert(await evaluate(`document.querySelector('.comparison-panel').textContent.includes('Histórico incompleto simulado')`),'Exclusions remain visible');
+    await evaluate(`document.querySelector('.comparison-panel summary').click()`);
+    assert(await evaluate(`document.querySelector('.comparison-panel details').open`));
+    await evaluate(`window.__anchorClick=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){window.__export={name:this.download,url:this.href}}`);
+    await click('Exportar comparación CSV');
+    const csv=await evaluate(`fetch(window.__export.url).then(r=>r.text())`);assert(csv.includes('-7.25'));assert(csv.includes('Excluida:'));
+    await evaluate(`HTMLAnchorElement.prototype.click=window.__anchorClick`);
+    await input('Empresas para comparar','AAPL, MSFT, NVDA, TSLA, AMD, META, AMZN');await click('Comparar empresas y periodos');
+    assert.equal(await evaluate('window.__tepicComparisonQA.calls.length'),1,'Oversized universe rejected before networking');
+    await screenshot('comparison-desktop.png',1440,1100);await screenshot('comparison-mobile.png',390,844);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Comparison mobile fits');
+    console.log('PASS: comparison source guard, symbols, negative returns, incomplete coverage, fold details, CSV, six-company limit and mobile. All provider and runner responses simulated.');
+  }else if(mode==='history'){
+    async function selectSource(value){
+      await evaluate(`(()=>{const input=document.querySelector('select[aria-label="Fuente del histórico"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    }
+    await selectSource('alpaca');
+    await until(`window.__tepicHistoryQA.calls.length>0 && !!document.querySelector('.market-chart [data-validation-region]')`);
+    const query=await evaluate('window.__tepicHistoryQA.calls.at(-1)');
+    assert.equal(query.interval,'1d');
+    assert.equal(query.start,'2023-11-09');
+    assert.equal(query.end,'2026-11-09');
+    assert(await evaluate(`Number(document.querySelector('.history-summary span').textContent.split(' ')[0].replaceAll(',',''))>700`),'Three-year fixture is displayed');
+    await until(`document.querySelector('.company-heading p').textContent==='Empresa de prueba de la API'`);
+    assert(await evaluate(`Array.from(document.querySelectorAll('.market-chart svg text')).some(element=>element.textContent.includes('2023'))`),'Axes include the year');
+    assert(await evaluate(`document.querySelectorAll('.market-chart [data-signal="buy"]').length>0`),'Historical buy signals remain visible after chart aggregation');
+    assert(await evaluate(`document.querySelectorAll('.market-chart [data-signal="sell"]').length>0`),'Historical sell signals remain visible after chart aggregation');
+    assert(await evaluate(`!!document.querySelector('[data-analysis-indicator="sma20-50"]')`),'Causal rule averages are graphed');
+    await evaluate(`window.__anchorClick=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){window.__export={name:this.download,url:this.href}}`);
+    await click('Exportar velas CSV');
+    const exported=await evaluate(`fetch(window.__export.url).then(response=>response.text())`);
+    assert(exported.split('\r\n').length>700,'CSV preserves original history rather than SVG buckets');
+    assert((await evaluate('window.__export.name')).endsWith('-alpaca.csv'));
+    await evaluate('HTMLAnchorElement.prototype.click=window.__anchorClick');
+    await input('Inicio de histórico de velas','2026-01-01');
+    await until(`document.querySelector('.history-summary strong').textContent.startsWith('2026-01-01')`);
+    assert(await evaluate(`Number(document.querySelector('.history-summary span').textContent.split(' ')[0].replaceAll(',',''))<300`),'Changing the date range changes the underlying history');
+    await evaluate('window.__tepicHistoryQA.fail=true');
+    await click('5A');
+    await until(`document.querySelector('.history-query-error')?.textContent.includes('rechazó el acceso')`);
+    assert.equal(await evaluate(`document.querySelector('select[aria-label="Fuente del histórico"]').value`),'alpaca','Provider errors cannot silently change the selected source');
+    assert.equal(await evaluate(`document.querySelectorAll('.market-chart').length`),0,'Failed real request does not display synthetic candles');
+    assert(await evaluate(`document.querySelector('.price-row strong').textContent.startsWith('—')`),'Failed request does not label a demo price as real');
+    await selectSource('demo');
+    await until(`!!document.querySelector('.market-chart')&&document.querySelector('.chart-sim-label').textContent.includes('SIMULADO')`);
+    await screenshot('history-desktop.png',1440,1100);await screenshot('history-mobile.png',390,844);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'History and analysis controls fit mobile');
+    console.log('PASS: simulated historical-provider API, three-year candles, calendar range, year axes, causal buy/sell markers, original CSV, company identity, explicit API errors and mobile. No live broker connection is claimed.');
+  }else if(mode==='screenshots'){
     await screenshot('desktop.png',1440,1000);await screenshot('mobile.png',390,844);
     assert(await evaluate('document.documentElement.scrollWidth <= innerWidth+1'),'Mobile horizontal overflow');
     console.log('Screenshots saved. Mobile document fits viewport.');
