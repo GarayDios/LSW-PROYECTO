@@ -123,7 +123,7 @@ El servicio conserva planes, eventos y reservas de ejecución en SQLite. Ese arc
 
 El servicio vuelve a evaluar mientras esté encendido. Puede esperar por fechas futuras, mercado cerrado o ausencia de señal. Bloquea cotizaciones de más de sesenta segundos, diferenciales demasiado amplios, falta de efectivo y símbolos con una posición u orden abierta. Una posición manual no se amplía ni se liquida automáticamente.
 
-La ejecución actual compra acciones completas mediante órdenes límite `day` en Alpaca Paper. No envía opciones Wheel/PMCC/Backspread/Gamma, no vende en corto ni implementa cierres automáticos. Los [tipos de orden y contratos de Alpaca](https://docs.alpaca.markets/us/reference/postorder) son diferentes para acciones y opciones; la simulación educativa F5 no sustituye esos contratos ni sus permisos.
+Los planes de acciones usan órdenes límite en Alpaca Paper y salidas por reglas o bracket según su configuración. Las opciones Wheel/PMCC/Backspread/Gamma disponen de un flujo separado de [F5 Paper](f5-alpaca-paper.md), con contratos existentes, confirmación por operación y cierre revisado. Las opciones no utilizan el bracket de acciones. Las coberturas Gamma no venden acciones cortas ni se rebalancean automáticamente.
 
 Cada señal utiliza un `client_order_id` estable y una reserva duradera. Si una respuesta es ambigua, el servicio consulta ese identificador antes de cualquier reintento y conserva el evento para revisión. No envía de nuevo una orden simplemente porque no obtuvo su respuesta. [Consulta por identificador de cliente](https://docs.alpaca.markets/us/reference/getorderbyclientorderid).
 

@@ -21,6 +21,7 @@
     "db:mongo:serve": "node --env-file=.env.mongo.local services/mongo-api/server.ts",
     "trading:serve": "node --env-file=.env.trading.local services/trading-runner/server.ts",
     "broker:check": "node scripts/verify-alpaca-connection.mjs",
+    "f5:check": "node scripts/verify-f5-connection.mjs",
     "research:check": "node scripts/verify-research-connection.mjs",
     "db:check": "node scripts/verify-database-connection.mjs"
   },

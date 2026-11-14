@@ -4,7 +4,7 @@ import PwaRegister from "../src/components/pwa/pwa-register";
 
 export const metadata: Metadata = {
   title: "TEPIC · Options Lab",
-  description: "Terminal de análisis cuantitativo de opciones. Explora estrategias F0 y F5, crea listas de empresas y simula operaciones.",
+  description: "Terminal de análisis cuantitativo de opciones. Explora F0, compara empresas y revisa operaciones F5 con contratos de Alpaca Paper.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "TEPIC", statusBarStyle: "black-translucent" },
   icons: {
