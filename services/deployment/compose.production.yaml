@@ -1,0 +1,42 @@
+services:
+  trading-runner:
+    build:
+      context: ../..
+      dockerfile: services/trading-runner/Dockerfile
+    init: true
+    restart: unless-stopped
+    env_file: ../../.env.trading.local
+    environment:
+      TRADING_RUNNER_HOST: 0.0.0.0
+      TRADING_RUNNER_PORT: 8790
+      TRADING_RUNNER_DB: /data/trading-runner.sqlite
+      TRADING_BACKUP_DIRECTORY: /backups
+    expose: ["8790"]
+    volumes:
+      - trading-data:/data
+      - trading-backups:/backups
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  proxy:
+    image: caddy:2
+    init: true
+    restart: unless-stopped
+    environment:
+      TRADING_PUBLIC_HOST: ${TRADING_PUBLIC_HOST:?Configura el dominio del servicio}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      trading-runner:
+        condition: service_healthy
+volumes:
+  trading-data:
+  trading-backups:
+  caddy-data:
+  caddy-config:

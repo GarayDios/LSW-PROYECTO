@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { F5Operation } from '../../src/features/f5/types.ts';
+import type { F5AutomationPlan, F5ControlEvent, F5Health, F5Operation, F5RiskSettings, F5RiskState } from '../../src/features/f5/types.ts';
+import { defaultF5Risk } from './f5-model.ts';
 
 export type F5Store = {
   list(ownerId: string): F5Operation[];
@@ -12,6 +13,17 @@ export type F5Store = {
   reserve(ownerId: string, id: string, lease: string, now: number): boolean;
   acquire(ownerId: string, now: number): string | null;
   release(ownerId: string, lease: string): void;
+  settings(ownerId: string): F5RiskSettings;
+  setSettings(ownerId: string, value: F5RiskSettings): void;
+  risk(ownerId: string): F5RiskState | null;
+  setRisk(ownerId: string, value: F5RiskState): void;
+  health(ownerId: string): F5Health | null;
+  setHealth(ownerId: string, value: F5Health): void;
+  plans(ownerId: string): F5AutomationPlan[];
+  savePlan(ownerId: string, value: F5AutomationPlan): void;
+  events(ownerId: string): F5ControlEvent[];
+  event(ownerId: string, value: F5ControlEvent, dedupKey: string): boolean;
+  claim(ownerId: string, key: string, operationId: string): boolean;
   close(): void;
 };
 
@@ -30,10 +42,19 @@ export function openF5Store(filename: string): F5Store {
     create table if not exists f5_account_leases (
       owner_id text primary key, lease text not null, expires_at integer not null
     );
+    create table if not exists f5_control (owner_id text not null, kind text not null, payload text not null, primary key(owner_id,kind));
+    create table if not exists f5_plans (id text primary key, owner_id text not null, payload text not null);
+    create table if not exists f5_events (id text primary key, owner_id text not null, time text not null, dedup_key text not null, payload text not null, unique(owner_id,dedup_key));
+    create table if not exists f5_actions (owner_id text not null, action_key text not null, operation_id text not null, primary key(owner_id,action_key));
   `);
   const read = (row: Record<string, unknown> | undefined): F5Operation | null => row ? {
     ...JSON.parse(String(row.payload)), state: String(row.state),
   } as F5Operation : null;
+  const control = <T>(ownerId: string, kind: string): T | null => {
+    const row = database.prepare('select payload from f5_control where owner_id=? and kind=?').get(ownerId, kind);
+    return row ? JSON.parse(String(row.payload)) as T : null;
+  };
+  const setControl = (ownerId: string, kind: string, value: unknown) => { database.prepare('insert into f5_control(owner_id,kind,payload) values(?,?,?) on conflict(owner_id,kind) do update set payload=excluded.payload').run(ownerId, kind, JSON.stringify(value)); };
   return {
     list(ownerId) {
       return database.prepare('select state,payload from f5_operations where owner_id=? order by created_at desc,id desc').all(ownerId).map(row => read(row)!);
@@ -63,6 +84,17 @@ export function openF5Store(filename: string): F5Store {
       return Number(result.changes) === 1 ? lease : null;
     },
     release(ownerId, lease) { database.prepare('delete from f5_account_leases where owner_id=? and lease=?').run(ownerId, lease); },
+    settings(ownerId) { return control<F5RiskSettings>(ownerId, 'settings') ?? { ...defaultF5Risk }; },
+    setSettings(ownerId, value) { setControl(ownerId, 'settings', value); },
+    risk(ownerId) { return control<F5RiskState>(ownerId, 'risk'); },
+    setRisk(ownerId, value) { setControl(ownerId, 'risk', value); },
+    health(ownerId) { return control<F5Health>(ownerId, 'health'); },
+    setHealth(ownerId, value) { setControl(ownerId, 'health', value); },
+    plans(ownerId) { return database.prepare('select payload from f5_plans where owner_id=? order by id').all(ownerId).map(row => JSON.parse(String(row.payload)) as F5AutomationPlan); },
+    savePlan(ownerId, value) { database.prepare('insert into f5_plans(id,owner_id,payload) values(?,?,?) on conflict(id) do update set payload=excluded.payload where f5_plans.owner_id=excluded.owner_id').run(value.id, ownerId, JSON.stringify(value)); },
+    events(ownerId) { return database.prepare('select payload from f5_events where owner_id=? order by time desc,id desc limit 200').all(ownerId).map(row => JSON.parse(String(row.payload)) as F5ControlEvent); },
+    event(ownerId, value, dedupKey) { return Number(database.prepare('insert into f5_events(id,owner_id,time,dedup_key,payload) values(?,?,?,?,?) on conflict(owner_id,dedup_key) do nothing').run(value.id, ownerId, value.time, dedupKey, JSON.stringify(value)).changes) === 1; },
+    claim(ownerId, key, operationId) { return Number(database.prepare('insert into f5_actions(owner_id,action_key,operation_id) values(?,?,?) on conflict(owner_id,action_key) do nothing').run(ownerId, key, operationId).changes) === 1; },
     close() { database.close(); },
   };
 }

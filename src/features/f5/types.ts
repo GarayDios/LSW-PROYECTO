@@ -15,7 +15,8 @@ export type F5OpenRequest = {
 };
 export type F5CloseRequest = { action: 'close'; operationId: string; limitPrice: number; maxCapitalUsd: number };
 export type F5HedgeRequest = { action: 'hedge'; operationId: string; side: F5Side; quantity: number; limitPrice: number; maxCapitalUsd: number };
-export type F5Request = F5OpenRequest | F5CloseRequest | F5HedgeRequest;
+export type F5RollRequest = { action: 'roll'; operationId: string; newShortContract: string; limitPrice: number; maxCapitalUsd: number };
+export type F5Request = F5OpenRequest | F5CloseRequest | F5HedgeRequest | F5RollRequest;
 export type F5OrderInput = {
   client_order_id: string; qty: string; type: 'limit'; time_in_force: 'day'; limit_price: string;
   symbol?: string; side?: F5Side; position_intent?: F5Intent; order_class?: 'mleg';
@@ -28,7 +29,7 @@ export type F5BrokerOrder = {
   position_intent?: string | null; ratio_qty?: string; created_at?: string; legs?: F5BrokerOrder[] | null;
 };
 export type F5Position = { symbol: string; quantity: number; assetClass: string; marketValue: number | null; averagePrice: number | null; unrealizedPnl: number | null };
-export type F5Activity = { id: string; type: string; symbol: string; date: string; quantity: string; description: string };
+export type F5Activity = { id: string; type: string; symbol: string; date: string; quantity: string; description: string; groupId?: string };
 export type F5Account = { status: string; cash: number; buyingPower: number; optionsBuyingPower: number; equity: number; optionsLevel: number; blocked: boolean };
 export type F5Operation = {
   id: string; strategy: StrategyId; underlying: string; action: F5Request['action']; parentId?: string;
@@ -36,9 +37,47 @@ export type F5Operation = {
   clientOrderId: string; input: F5OrderInput; createdAt: string; expiresAt: string;
   state: 'preview' | 'reserved' | 'submitted' | 'partial' | 'filled' | 'canceled' | 'rejected' | 'expired' | 'ambiguous';
   brokerOrder?: F5BrokerOrder; message?: string; warnings: string[];
+  planId?: string; automationKey?: string;
+  stockBaseline?: number; activityBaselineIds?: string[]; lifecycle?: F5Lifecycle;
 };
 export type F5Status = {
   configured: boolean; enabled: boolean; marketOpen: boolean; mode: 'paper'; feed: 'indicative' | 'opra';
   account: F5Account | null; operations: F5Operation[]; positions: F5Position[]; activities: F5Activity[];
   message?: string;
+};
+
+export type F5RiskSettings = {
+  paused: boolean; maxDailyLossUsd: number; maxGrossExposureUsd: number;
+  maxPremiumExposureUsd: number; maxAbsDelta: number; maxCycleCapitalUsd: number;
+};
+export type F5RiskState = {
+  date: string; baselineEquity: number; equity: number; dailyPnlUsd: number;
+  dailyLossBlocked: boolean; grossExposureUsd: number; premiumExposureUsd: number;
+  netDelta: number | null; uncertain: boolean; blockedReasons: string[]; updatedAt: string;
+};
+export type F5PlanPolicy =
+  | { kind: 'wheel'; minDte: number; maxDte: number; minStrike: number; maxStrike: number; minPremium: number }
+  | { kind: 'pmcc'; rollAtDte: number; minDte: number; maxDte: number; minStrike: number; maxStrike: number; maxDebit: number; minCredit: number }
+  | { kind: 'gamma'; deltaThreshold: number; maxShares: number; intervalSeconds: number }
+  | { kind: 'exit'; stopLossPct: number; takeProfitPct: number; closeDte: number };
+export type F5AutomationPlanInput = {
+  operationId?: string; initial?: F5OpenRequest; startDate: string; endDate: string;
+  maxActions: number; maxCapitalUsd: number; policy: F5PlanPolicy;
+};
+export type F5AutomationPlan = F5AutomationPlanInput & {
+  id: string; strategy: StrategyId; underlying: string; enabled: boolean; actions: number;
+  createdAt: string; updatedAt: string; lastEvaluatedAt?: string; lastActionAt?: string;
+  lastOperationId?: string; holdReason?: string;
+};
+export type F5ControlEvent = {
+  id: string; time: string; planId?: string; operationId?: string;
+  status: 'info' | 'waiting' | 'blocked' | 'submitted' | 'partial' | 'filled' | 'rejected' | 'canceled' | 'expired' | 'ambiguous' | 'error';
+  message: string;
+};
+export type F5Health = { running: boolean; automationEnabled: boolean; lastStartedAt: string | null; lastCompletedAt: string | null; lastError: string | null };
+export type F5Control = { settings: F5RiskSettings; plans: F5AutomationPlan[]; events: F5ControlEvent[]; health: F5Health; risk: F5RiskState | null };
+export type F5Lifecycle = {
+  phase: 'pending' | 'open' | 'partial' | 'closed' | 'expired' | 'assigned' | 'uncertain';
+  remainingQuantity: number; hedgeShares: number; canClose: boolean; canHedge: boolean; canRoll: boolean;
+  shortContract?: string; reason?: string;
 };

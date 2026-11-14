@@ -3,6 +3,7 @@ import { ALPACA_DATA_URL, ALPACA_PAPER_URL, BrokerConfigError, type BrokerConfig
 import { BrokerError } from './client.ts';
 import { f5EquitySymbol, f5OptionSymbol } from '../../../features/f5/validation.ts';
 import type { F5Account, F5Activity, F5BrokerOrder, F5Contract, F5OrderInput, F5Position } from '../../../features/f5/types.ts';
+import type { F5AccountingActivity, F5AccountingBatch } from '../../../features/f5/report-types.ts';
 
 const decimal = z.string().regex(/^-?\d+(?:\.\d+)?$/).refine(value => Number.isFinite(Number(value)));
 const positiveInteger = z.string().regex(/^[1-9]\d*$/).refine(value => Number.isSafeInteger(Number(value)) && Number(value) <= 1_000_000);
@@ -80,6 +81,12 @@ export class AlpacaOptionsClient {
     return { status: result.status, cash: Number(result.cash), buyingPower: Number(result.buying_power), optionsBuyingPower: Number(result.options_buying_power), equity: Number(result.equity), optionsLevel: result.options_trading_level, blocked: result.trading_blocked || result.account_blocked || !!result.trade_suspended_by_user };
   }
   async clock(): Promise<boolean> { return parse(z.object({ is_open: z.boolean() }), await this.request('/v2/clock')).is_open; }
+  async stockQuote(underlying: string): Promise<{ bid: number; ask: number; time: string }> {
+    checked(equitySymbol, underlying);
+    const result = parse(z.object({ quote: quote }), await this.request('/v2/stocks/' + encodeURIComponent(underlying) + '/quotes/latest?' + new URLSearchParams({ feed: this.config.dataFeed }), {}, false, true));
+    if (result.quote.bp <= 0 || result.quote.ap < result.quote.bp || Date.parse(result.quote.t) > this.now() + 5000 || this.now() - Date.parse(result.quote.t) > 60000) throw new BrokerError('f5_quote_unavailable', 409, 'No hay cotización reciente y verificable de la acción para revisar la cobertura.', false);
+    return { bid: result.quote.bp, ask: result.quote.ap, time: result.quote.t };
+  }
   private async equity(symbol: string): Promise<void> {
     const asset = parse(z.object({ symbol: equitySymbol, class: z.string(), status: z.string(), tradable: z.boolean() }), await this.request('/v2/assets/' + encodeURIComponent(checked(equitySymbol, symbol))));
     if (asset.symbol !== symbol || asset.class !== 'us_equity' || asset.status !== 'active' || !asset.tradable) throw new BrokerError('broker_asset_not_tradable', 409, 'F5 requiere una acción negociable verificada; los índices no están habilitados.', false);
@@ -159,16 +166,53 @@ export class AlpacaOptionsClient {
     throw new BrokerError('broker_exposure_uncertain', 409, 'No se pudo comprobar la lista completa de órdenes abiertas.', false);
   }
   async activities(): Promise<F5Activity[]> {
-    const schema = z.array(z.object({ id: z.string().min(1), activity_type: z.enum(['OPASN', 'OPTRD', 'OPEXC', 'OPEXP']), symbol: securitySymbol, date: z.string().min(10), qty: decimal, description: z.string().optional() })).max(100);
+    const schema = z.array(z.object({ id: z.string().min(1), activity_type: z.enum(['OPASN', 'OPTRD', 'OPEXC', 'OPEXP']), symbol: securitySymbol, date: z.string().min(10), qty: decimal, description: z.string().optional(), group_id: z.string().nullable().optional() })).max(100);
     const params = new URLSearchParams({ activity_types: 'OPASN,OPTRD,OPEXC,OPEXP', page_size: '100', direction: 'desc' }); const all: F5Activity[] = [], seen = new Set<string>();
     for (let page = 0; page < 20; page++) {
       const result = parse(schema, await this.request('/v2/account/activities?' + params));
-      for (const activity of result) { if (seen.has(activity.id)) throw invalid(); seen.add(activity.id); all.push({ id: activity.id, type: activity.activity_type, symbol: activity.symbol, date: activity.date, quantity: activity.qty, description: activity.description ?? '' }); }
+      for (const activity of result) { if (seen.has(activity.id)) throw invalid(); seen.add(activity.id); all.push({ id: activity.id, type: activity.activity_type, symbol: activity.symbol, date: activity.date, quantity: activity.qty, description: activity.description ?? '', ...(activity.group_id ? { groupId: activity.group_id } : {}) }); }
       if (result.length < 100) return all;
       params.set('page_token', result.at(-1)!.id);
     }
     throw new BrokerError('broker_activities_incomplete', 409, 'No se pudo comprobar el historial completo de asignaciones y vencimientos.', false);
   }
+  /** A bounded read advertises incomplete pagination instead of presenting a subset as the full ledger. */
+  private async accountingActivities(types: string, options: { after?: string; maxPages?: number } = {}): Promise<F5AccountingBatch> {
+    if (options.after !== undefined) checked(z.union([date, timestamp]), options.after);
+    const maxPages = options.maxPages ?? 20;
+    if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) throw new BrokerError('broker_order_invalid', 400, 'El límite de páginas del reporte no es válido.', false);
+    const amount = z.union([decimal, z.number().finite()]).nullable().optional();
+    const text = z.string().max(4096).nullable().optional();
+    const schema = z.array(z.object({ id: z.string().min(1).max(512), activity_type: z.string().min(1).max(64), symbol: text, order_id: text,
+      transaction_time: timestamp.nullable().optional(), date: z.string().min(10).nullable().optional(), qty: amount, price: amount, net_amount: amount,
+      side: text, group_id: text, option_symbol: text, related_activity_id: text, status: text, description: text, activity_sub_type: text, currency: text,
+    })).max(100);
+    const params = new URLSearchParams({ activity_types: types, page_size: '100', direction: 'asc', ...(options.after ? { after: options.after } : {}) });
+    const items: F5AccountingActivity[] = [], ids = new Map<string, string>(), warnings: string[] = []; let complete = false;
+    for (let page = 0; page < maxPages; page++) {
+      const raw = parse(schema, await this.request('/v2/account/activities?' + params));
+      for (const value of raw) {
+        if (!types.split(',').includes(value.activity_type)) throw invalid();
+        const numeric = (value: string | number | null | undefined): number | null => value == null ? null : Number(value);
+        const activity: F5AccountingActivity = { id: value.id, type: value.activity_type, symbol: value.symbol ?? null, orderId: value.order_id ?? null,
+          date: value.date?.slice(0, 10) ?? value.transaction_time?.slice(0, 10) ?? null, transactionTime: value.transaction_time ?? null, quantity: numeric(value.qty), price: numeric(value.price),
+          side: value.side === 'buy' || value.side === 'sell' || value.side === 'sell_short' ? value.side : null, netAmount: numeric(value.net_amount), groupId: value.group_id ?? null,
+          optionSymbol: value.option_symbol ?? null, relatedActivityId: value.related_activity_id ?? null, status: value.status ?? null, description: value.description ?? '', subtype: value.activity_sub_type ?? null, currency: value.currency ?? null };
+        const signature = JSON.stringify(activity), previous = ids.get(activity.id);
+        if (previous && previous !== signature) { warnings.push('Un identificador de actividad cambió durante la consulta; el reporte requiere conciliación.'); return { items, complete: false, asOf: new Date(this.now()).toISOString(), source: 'Alpaca Paper /v2/account/activities', warnings }; }
+        if (!previous) { ids.set(activity.id, signature); items.push(activity); }
+      }
+      if (raw.length < 100) { complete = true; break; }
+      const last = raw.at(-1)!.id;
+      if (last === params.get('page_token')) { warnings.push('La paginación de actividades no avanzó.'); break; }
+      params.set('page_token', last);
+    }
+    if (!complete) warnings.push('La consulta de actividades es parcial; los importes completos y los costes no se dan por conocidos.');
+    return { items, complete, asOf: new Date(this.now()).toISOString(), source: 'Alpaca Paper /v2/account/activities', warnings };
+  }
+  async fillActivities(options?: { after?: string; maxPages?: number }): Promise<F5AccountingBatch> { return this.accountingActivities('FILL', options); }
+  async feeActivities(options?: { after?: string; maxPages?: number }): Promise<F5AccountingBatch> { return this.accountingActivities('FEE,CFEE', options); }
+  async optionActivities(options?: { after?: string; maxPages?: number }): Promise<F5AccountingBatch> { return this.accountingActivities('OPASN,OPTRD,OPEXC,OPEXP,OPCSH', options); }
   async orderByClientId(id: string): Promise<F5BrokerOrder | null> {
     checked(identifier, id);
     const result = await this.request('/v2/orders:by_client_order_id?' + new URLSearchParams({ client_order_id: id, nested: 'true' }), {}, true);
@@ -198,7 +242,7 @@ export class AlpacaOptionsClient {
     }
     return order;
   }
-  async submit(input: F5OrderInput, notAfter?: number): Promise<F5BrokerOrder> {
+  async submit(input: F5OrderInput, notAfter?: number, allowSubmit?: () => boolean): Promise<F5BrokerOrder> {
     if (notAfter !== undefined && !Number.isFinite(notAfter)) throw new BrokerError('broker_order_invalid', 400, 'La fecha límite de la revisión no es válida.', false);
     const requested = checked(orderInput, input) as F5OrderInput;
     const legs = requested.legs;
@@ -209,11 +253,11 @@ export class AlpacaOptionsClient {
     if (flight) { if (flight.input !== signature) throw conflict(); return flight.promise; }
     const previous = this.attempted.get(requested.client_order_id);
     if (previous && JSON.stringify(previous) !== signature) throw conflict();
-    const promise = this.submitOnce(requested, notAfter);
+    const promise = this.submitOnce(requested, notAfter, allowSubmit);
     this.inFlight.set(requested.client_order_id, { input: signature, promise });
     try { return await promise; } finally { this.inFlight.delete(requested.client_order_id); }
   }
-  private async submitOnce(requested: F5OrderInput, notAfter?: number): Promise<F5BrokerOrder> {
+  private async submitOnce(requested: F5OrderInput, notAfter?: number, allowSubmit?: () => boolean): Promise<F5BrokerOrder> {
     const existing = await this.orderByClientId(requested.client_order_id);
     if (existing) return this.matching(existing, requested);
     if (this.attempted.has(requested.client_order_id)) throw ambiguous();
@@ -239,6 +283,7 @@ export class AlpacaOptionsClient {
     // The review can expire while the preceding provider reads are in flight.
     // An expired review may reconcile an existing order, but can never POST.
     if (notAfter !== undefined && this.now() >= notAfter) throw new BrokerError('f5_preview_expired', 409, 'La revisión venció durante las comprobaciones; no se envió la orden F5.', false);
+    if (allowSubmit && !allowSubmit()) throw new BrokerError('f5_paused', 409, 'La política F5 cambió durante las consultas; no se envió la orden.', false);
     this.attempted.set(requested.client_order_id, requested);
     try { return this.matching(parse(orderSchema, await this.request('/v2/orders', { method: 'POST', body: JSON.stringify(requested) })), requested); }
     catch (error) {

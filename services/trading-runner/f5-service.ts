@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { BrokerError } from '../../src/api/brokers/alpaca/client.ts';
 import { openingLegs, parseF5Request, requiredOptionsLevel } from '../../src/features/f5/validation.ts';
 import type { AlpacaOptionsClient } from '../../src/api/brokers/alpaca/options.ts';
-import type { F5Account, F5BrokerOrder, F5Contract, F5Leg, F5Operation, F5OrderInput, F5Position, F5Request, F5Status } from '../../src/features/f5/types.ts';
+import type { F5Account, F5AutomationPlan, F5BrokerOrder, F5Contract, F5Control, F5ControlEvent, F5Leg, F5Operation, F5OrderInput, F5Position, F5Request, F5Status } from '../../src/features/f5/types.ts';
 import type { F5Store } from './f5-store.ts';
+import { executed, f5Residual, parsePlan, riskSettingsSchema } from './f5-model.ts';
+import { enforceF5Risk, measureF5Risk } from './f5-risk.ts';
 
-export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'>;
-type Options = { store: F5Store; broker: F5Broker | null; ownerId: string; enabled: boolean; feed?: 'indicative' | 'opra'; now?: () => number; reservedShares?: (underlying: string) => number };
+export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'>>;
+type Options = { store: F5Store; broker: F5Broker | null; ownerId: string; enabled: boolean; automationEnabled?: boolean; feed?: 'indicative' | 'opra'; now?: () => number; reservedShares?: (underlying: string) => number; onEvent?: (event: F5ControlEvent) => void };
 type Result = { status: number; value: unknown };
 const unresolved = (operation: F5Operation) => ['reserved', 'submitted', 'partial', 'ambiguous'].includes(operation.state);
 const identifier = z.string().uuid();
@@ -46,6 +48,14 @@ export function createF5Service(options: Options) {
   const now = options.now ?? Date.now, feed = options.feed ?? 'indicative', store = options.store;
   const broker = () => options.broker ?? fail('f5_not_configured', 'Configura Alpaca Paper en el servicio para consultar y operar F5.', 503);
   const get = (id: string) => store.get(options.ownerId, id) ?? fail('f5_operation_not_found', 'La operación F5 no existe en esta cuenta.', 404);
+  function event(status: F5ControlEvent['status'], message: string, planId?: string, operationId?: string, key?: string) {
+    const value: F5ControlEvent = { id: randomUUID(), time: new Date(now()).toISOString(), status, message, ...(planId ? { planId } : {}), ...(operationId ? { operationId } : {}) };
+    if (store.event(options.ownerId, value, key ?? `${planId ?? 'manual'}:${operationId ?? ''}:${status}:${Math.floor(now() / 900000)}:${message}`)) options.onEvent?.(value);
+  }
+  async function measure(account: F5Account, positions: F5Position[]) {
+    const risk = await measureF5Risk({ account, positions, operations: store.list(options.ownerId), settings: store.settings(options.ownerId), previous: store.risk(options.ownerId), time: now(), feed, contract: symbol => broker().contract(symbol) });
+    store.setRisk(options.ownerId, risk); return risk;
+  }
 
   function matchingResponse(operation: F5Operation, order: F5BrokerOrder): F5Operation {
     if (order.client_order_id !== operation.clientOrderId || numeric(order.qty) !== operation.quantity || order.type !== 'limit' || order.time_in_force !== 'day' || numeric(order.limit_price) !== operation.limitPrice || operation.brokerOrder?.id && operation.brokerOrder.id !== order.id) {
@@ -87,7 +97,9 @@ export function createF5Service(options: Options) {
     try {
       const order = await broker().orderByClientId(operation.clientOrderId);
       const updated = order ? matchingResponse(operation, order) : { ...operation, state: 'ambiguous' as const, message: 'No se confirmó la orden reservada. Se conserva el identificador y no se repetirá el envío.' };
-      store.update(options.ownerId, updated); return updated;
+      store.update(options.ownerId, updated);
+      if (updated.state !== operation.state || updated.brokerOrder?.filled_qty !== operation.brokerOrder?.filled_qty) event(updated.state === 'reserved' || updated.state === 'preview' ? 'info' : updated.state, updated.message ?? 'Estado F5 actualizado.', updated.planId, updated.id, `${updated.id}:${updated.state}:${updated.brokerOrder?.filled_qty ?? '0'}`);
+      return updated;
     } catch (error) {
       const updated = { ...operation, state: 'ambiguous' as const, message: error instanceof BrokerError ? error.message : 'No se pudo conciliar la orden. No se repetirá el envío.' };
       store.update(options.ownerId, updated); return updated;
@@ -109,7 +121,7 @@ export function createF5Service(options: Options) {
 
   async function prepare(request: F5Request, existing?: F5Operation): Promise<F5Operation> {
     const api = broker(), time = now();
-    const [account, marketOpen, positions, openOrders] = await Promise.all([api.account(), api.clock(), api.positions(), api.orders()]);
+    const [account, marketOpen, positions, openOrders, activities] = await Promise.all([api.account(), api.clock(), api.positions(), api.orders(), api.activities()]);
     if (flatten(openOrders).length) fail('f5_pending_broker_orders', 'Hay órdenes pendientes en la cuenta Paper. Concílialas o cancélalas antes de preparar otra operación F5.');
     const others = store.list(options.ownerId).filter(operation => operation.id !== existing?.id && unresolved(operation));
     if (others.length) fail('f5_pending_operations', 'Hay operaciones F5 pendientes o sin confirmar. Actualiza su estado antes de enviar otra.');
@@ -166,13 +178,14 @@ export function createF5Service(options: Options) {
       }
     } else {
       const parent = get(request.operationId);
-      if (parent.action !== 'open' || parent.state !== 'filled' || !parent.brokerOrder || numeric(parent.brokerOrder.filled_qty) !== parent.quantity) fail('f5_open_not_filled', 'Primero debe estar confirmada la apertura completa de la estrategia en Alpaca.');
-      strategy = parent.strategy; underlying = parent.underlying; parentId = parent.id; quantity = parent.quantity;
+      if (parent.action !== 'open' || !parent.brokerOrder || executed(parent) <= 0 || !Number.isFinite(executed(parent))) fail('f5_open_not_filled', 'Primero debe existir una ejecución confirmada de la apertura en Alpaca.');
+      const residual = f5Residual(parent, store.list(options.ownerId), positions, activities, time);
+      strategy = parent.strategy; underlying = parent.underlying; parentId = parent.id; quantity = residual.quantity;
       accountReady(account, 1);
-      if (activeChildren(parent.id).some(child => child.action === 'close' || unresolved(child))) fail('f5_child_operation_exists', 'Este ciclo tiene un cierre o una cobertura pendiente, parcial o ya ejecutada. Revisa el historial.');
       if (request.action === 'close') {
-        if (Math.abs(confirmedHedge(parent.id)) > 0) fail('f5_hedge_not_flat', 'Cierra primero la cobertura en acciones de Gamma con una orden revisada.');
-        legs = closeLegs(parent.legs);
+        if (residual.lifecycle.hedgeShares !== 0) fail('f5_hedge_not_flat', 'Cierra primero la cobertura en acciones de Gamma con una orden revisada.');
+        if (!residual.lifecycle.canClose) fail(residual.lifecycle.phase === 'uncertain' ? 'f5_position_missing' : 'f5_child_operation_exists', residual.lifecycle.reason ?? 'No hay un residuo confirmado disponible para cerrar.');
+        legs = residual.legs;
         contracts = await Promise.all(legs.map(leg => api.contract(leg.symbol)));
         contracts.forEach(contract => {
           if (!contract.tradable || contract.expiry < realDate(time)) fail('f5_contract_unavailable', 'El contrato ya no está disponible para un cierre desde el terminal. Revisa Alpaca.');
@@ -185,22 +198,37 @@ export function createF5Service(options: Options) {
         }
         if (legs.length === 1 && request.limitPrice <= 0) fail('f5_invalid_limit', 'La prima de cierre de una sola opción debe ser positiva.');
         reserve = legs.length === 1 ? (legs[0].side === 'buy' ? request.limitPrice * quantity * 100 : 0) : Math.max(0, request.limitPrice * quantity * 100);
+      } else if (request.action === 'roll') {
+        if (!residual.lifecycle.canRoll || strategy !== 'pmcc') fail('f5_roll_unavailable', 'El ciclo PMCC necesita una call larga y una corta confirmadas para rolar.');
+        accountReady(account, 3);
+        const shortSymbol = residual.lifecycle.shortContract!;
+        const longSymbol = [...residual.vector].find(([, count]) => count > 0)![0];
+        const [long, old, replacement] = await Promise.all([api.contract(longSymbol), api.contract(shortSymbol), api.contract(request.newShortContract)]);
+        for (const item of [long, old, replacement]) quoteReady(item, time, feed);
+        if (replacement.symbol === old.symbol || replacement.underlying !== underlying || replacement.type !== 'call' || replacement.style !== 'american' || replacement.size !== 100 || !replacement.tradable || replacement.expiry <= old.expiry || replacement.expiry >= long.expiry || replacement.strike < long.strike || (positions.find(position => position.symbol === replacement.symbol)?.quantity ?? 0) !== 0) fail('f5_roll_invalid', 'La nueva call corta debe ser distinta, americana, del mismo subyacente, posterior a la corta y anterior a la larga, con strike cubierto.');
+        if (residual.vector.get(longSymbol) !== -residual.vector.get(shortSymbol)!) fail('f5_roll_invalid', 'El residuo PMCC no conserva una proporción 1:1 verificable.');
+        quantity = Math.abs(residual.vector.get(shortSymbol)!);
+        legs = [{ symbol: shortSymbol, side: 'buy', ratio: 1, intent: 'buy_to_close' }, { symbol: replacement.symbol, side: 'sell', ratio: 1, intent: 'sell_to_open' }];
+        contracts = [old, replacement];
+        reserve = Math.max(0, request.limitPrice * quantity * 100) + replacement.strike * quantity * 100;
+        warnings.push('El roll viaja en una sola orden combinada. Alpaca puede rechazar la cobertura externa; nunca se enviarán las piernas por separado.');
       } else {
         if (strategy !== 'gamma') fail('f5_hedge_strategy', 'Solo un straddle Gamma confirmado admite esta cobertura.');
+        if (!residual.lifecycle.canHedge) fail('f5_position_missing', residual.lifecycle.reason ?? 'No existe una cobertura o posición Gamma verificable.');
         quantity = request.quantity;
-        const owned = confirmedHedge(parent.id), stock = positions.find(position => position.symbol === underlying && position.assetClass === 'us_equity');
+        const owned = residual.lifecycle.hedgeShares, stock = positions.find(position => position.symbol === underlying && position.assetClass === 'us_equity');
         const change = request.side === 'buy' ? quantity : -quantity;
         if (quantity > parent.quantity * 100 || owned + change < 0 || owned + change > parent.quantity * 100) fail('f5_short_hedge_disabled', 'La cobertura se limita a acciones enteras compradas por este ciclo; no admite ventas en corto ni vender acciones manuales.');
-        if (request.side === 'sell' && (!stock || stock.quantity < quantity)) fail('f5_hedge_position_missing', 'No hay suficientes acciones de cobertura confirmadas y disponibles en Alpaca.');
+        if (request.side === 'sell' && (!stock || stock.quantity < (parent.stockBaseline ?? 0) + owned)) fail('f5_hedge_position_missing', 'Las acciones actuales no cubren la posición manual inicial y toda la cobertura atribuida al ciclo.');
         const unwind = request.side === 'sell' && quantity <= owned;
-        contracts = unwind ? [] : await Promise.all(parent.legs.map(leg => api.contract(leg.symbol)));
+        contracts = unwind ? [] : await Promise.all([...residual.vector].filter(([, qty]) => qty !== 0).map(([symbol]) => api.contract(symbol)));
         let netDelta = owned;
         for (const [index, contract] of contracts.entries()) {
           quoteReady(contract, time, feed);
           if (contract.delta === null || !Number.isFinite(contract.delta) || contract.expiry <= realDate(time)) fail('f5_delta_unavailable', 'No hay delta observada vigente para revisar la cobertura Gamma.');
           const held = positions.find(position => position.symbol === contract.symbol && position.assetClass === 'us_option');
-          if (!held || held.quantity !== parent.quantity * parent.legs[index].ratio) fail('f5_position_missing', 'El straddle ya no coincide exactamente con este ciclo en Alpaca; revisa movimientos, vencimientos o asignaciones.');
-          netDelta += contract.delta * parent.quantity * parent.legs[index].ratio * 100;
+          if (!held || held.quantity !== residual.vector.get(contract.symbol)) fail('f5_position_missing', 'El straddle ya no coincide exactamente con este ciclo en Alpaca; revisa movimientos, vencimientos o asignaciones.');
+          netDelta += contract.delta * held.quantity * 100;
         }
         // Unwinding attributed shares is always available; opening/increasing a
         // hedge must reduce the absolute observed delta, rounded to whole shares.
@@ -219,18 +247,26 @@ export function createF5Service(options: Options) {
     const input = orderInput(legs, quantity, request.limitPrice, clientOrderId);
     // Equity hedges have no option position intent in the broker payload.
     if (request.action === 'hedge') delete input.position_intent;
-    return {
+    const operation: F5Operation = {
       id, strategy, underlying, action: request.action, ...(parentId ? { parentId } : {}), request,
       legs, quantity, limitPrice: request.limitPrice, reservedCapitalUsd: precision(reserve), clientOrderId, input,
       createdAt: existing?.createdAt ?? new Date(time).toISOString(), expiresAt: existing?.expiresAt ?? new Date(time + 60000).toISOString(), state: 'preview', warnings,
+      ...(request.action === 'open' ? { stockBaseline: existing?.stockBaseline ?? (positions.find(position => position.symbol === underlying && position.assetClass === 'us_equity')?.quantity ?? 0), activityBaselineIds: existing?.activityBaselineIds ?? activities.map(activity => activity.id) } : {}),
     };
+    const risk = await measure(account, positions);
+    const deltaChange = request.action === 'hedge' ? quantity * (request.side === 'buy' ? 1 : -1) : contracts.every(contract => contract.delta !== null) ? legs.reduce((total, leg, index) => total + (contracts[index]?.delta ?? 0) * leg.ratio * quantity * 100 * (leg.side === 'buy' ? 1 : -1), 0) : null;
+    const allocation = reserve + (parentId ? get(parentId).reservedCapitalUsd + store.list(options.ownerId).filter(op => op.parentId === parentId && op.action === 'hedge').reduce((total, op) => total + executed(op) * op.limitPrice * (op.input.side === 'buy' ? 1 : -1), 0) : 0);
+    enforceF5Risk(store.settings(options.ownerId), risk, operation, deltaChange, allocation);
+    return operation;
   }
 
   async function status(): Promise<F5Status> {
     if (!options.broker) return { configured: false, enabled: options.enabled, marketOpen: false, mode: 'paper', feed, account: null, operations: store.list(options.ownerId), positions: [], activities: [], message: 'Configura las claves de Alpaca Paper en el servicio.' };
     await reconcile();
     const [account, marketOpen, positions, activities] = await Promise.all([broker().account(), broker().clock(), broker().positions(), broker().activities()]);
-    return { configured: true, enabled: options.enabled, marketOpen, mode: 'paper', feed, account, operations: store.list(options.ownerId), positions, activities };
+    await measure(account, positions);
+    const operations = store.list(options.ownerId);
+    return { configured: true, enabled: options.enabled, marketOpen, mode: 'paper', feed, account, operations: operations.map(operation => operation.action === 'open' ? { ...operation, lifecycle: f5Residual(operation, operations, positions, activities, now()).lifecycle } : operation), positions, activities };
   }
 
   async function handle(method: string, path: string, ownerId: string, body?: unknown): Promise<Result> {

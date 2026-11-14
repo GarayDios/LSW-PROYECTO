@@ -8,6 +8,7 @@ const mutation = z.discriminatedUnion('action', [
   z.object({ action: z.literal('preview'), request: z.record(z.unknown()) }).strict(),
   z.object({ action: z.literal('submit'), previewId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('cancel'), operationId: z.string().uuid() }).strict(),
+  z.object({ action: z.literal('control'), request: z.record(z.unknown()) }).strict(),
 ]);
 
 function runnerConfig(environment: Environment) {
@@ -122,8 +123,8 @@ export function createF5Handlers(dependencies: Dependencies) {
       try {
         const context = await authorize(), query = new URL(request.url).searchParams;
         const resource = query.get('resource') ?? 'status';
-        if (!['status', 'contracts'].includes(resource)) throw new ApiError('f5_invalid_resource', 'La consulta F5 no es válida.');
-        if (resource === 'status') return await forward(context, 'status');
+        if (!['status', 'contracts', 'control', 'report'].includes(resource)) throw new ApiError('f5_invalid_resource', 'La consulta F5 no es válida.');
+        if (resource !== 'contracts') return await forward(context, resource);
         const underlying = query.get('underlying') ?? '', expiry = query.get('expiry');
         if (!/^[A-Z][A-Z0-9.-]{0,14}$/.test(underlying) || expiry !== null && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) throw new ApiError('f5_invalid_contract_query', 'Selecciona una empresa y un vencimiento válidos.');
         const path = 'contracts?' + new URLSearchParams({ underlying, ...(expiry ? { expiry } : {}) });
@@ -137,6 +138,13 @@ export function createF5Handlers(dependencies: Dependencies) {
         if (!parsed.success) throw new ApiError('f5_invalid_action', 'Revisa los datos de la operación F5.');
         const action = parsed.data;
         if (action.action === 'submit' && context.environment.ALPACA_F5_ENABLED !== 'true') throw new ApiError('f5_disabled', 'Activa ALPACA_F5_ENABLED=true en el terminal y el servicio para enviar opciones a Alpaca Paper.', 409);
+        if (action.action === 'control') {
+          if (['enable-plan', 'tick'].includes(String(action.request.action)) &&
+            (context.environment.ALPACA_F5_ENABLED !== 'true' || context.environment.ALPACA_F5_AUTOMATION_ENABLED !== 'true')) {
+            throw new ApiError('f5_automation_disabled', 'Habilita ALPACA_F5_ENABLED y ALPACA_F5_AUTOMATION_ENABLED en el terminal y el servicio antes de activar un plan F5.', 409);
+          }
+          return await forward(context, 'control', action.request);
+        }
         if (action.action === 'preview') return await forward(context, 'preview', action.request);
         if (action.action === 'submit') return await forward(context, 'submit', { previewId: action.previewId });
         return await forward(context, 'cancel', { operationId: action.operationId });

@@ -5,6 +5,8 @@ import { ArrowRight, Check, Clock3, ExternalLink, Layers3, LoaderCircle, Refresh
 import { strategies } from '../strategies/catalog';
 import type { StrategyId } from '../../cores/types';
 import type { F5Contract, F5Operation, F5Request, F5Side, F5Status } from './types';
+import F5ControlPanel from './f5-control-panel';
+import F5ReportPanel from './f5-report-panel';
 import './f5-panel.css';
 
 const cash = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -35,6 +37,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 const post = <T,>(body: unknown) => api<T>('/api/f5', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 export default function F5Panel({ underlying: initialUnderlying, initialStrategy, mode = 'trade' }: { underlying: string; initialStrategy: StrategyId; mode?: 'trade' | 'orders' | 'portfolio' }) {
+  const [tab, setTab] = useState<'operations' | 'control' | 'report'>('operations');
   const [status, setStatus] = useState<F5Status | null>(null);
   const [statusError, setStatusError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -53,7 +56,11 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const [limitPrice, setLimitPrice] = useState('');
   const [budget, setBudget] = useState('1000');
   const [preview, setPreview] = useState<F5Operation | null>(null);
-  const [management, setManagement] = useState<{ operation: F5Operation; action: 'close' | 'hedge' } | null>(null);
+  const [management, setManagement] = useState<{ operation: F5Operation; action: 'close' | 'hedge' | 'roll' } | null>(null);
+  const [rollExpiry, setRollExpiry] = useState(nextFriday);
+  const [rollContracts, setRollContracts] = useState<F5Contract[]>([]);
+  const [rollContract, setRollContract] = useState('');
+  const [rollLoading, setRollLoading] = useState(false);
   const [managementLimit, setManagementLimit] = useState('');
   const [managementBudget, setManagementBudget] = useState('1000');
   const [hedgeSide, setHedgeSide] = useState<F5Side>('buy');
@@ -64,6 +71,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const [now, setNow] = useState(Date.now);
   const statusSequence = useRef(0);
   const chainSequence = useRef(0);
+  const rollSequence = useRef(0);
   const formSequence = useRef(0);
   const busyRef = useRef(false);
   const attempted = useRef(new Set<string>());
@@ -86,7 +94,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     mounted.current = true;
     void refresh();
     const timer = setInterval(() => { if (!busyRef.current) void refresh(); }, 15000);
-    return () => { mounted.current = false; statusSequence.current++; chainSequence.current++; formSequence.current++; clearInterval(timer); };
+    return () => { mounted.current = false; statusSequence.current++; chainSequence.current++; rollSequence.current++; formSequence.current++; clearInterval(timer); };
   }, [refresh]);
   useEffect(() => { setUnderlying(initialUnderlying); setStrategy(initialStrategy); setSelection(['', '']); setPreview(null); setManagement(null); formSequence.current++; }, [initialUnderlying, initialStrategy]);
   useEffect(() => {
@@ -160,13 +168,23 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : 'No se pudo confirmar la cancelación.'); }
     finally { busyRef.current = false; if (mounted.current) { setBusy(false); await refresh(); } }
   }
-  function manage(operation: F5Operation, action: 'close' | 'hedge') {
-    invalidate(); setManagement({ operation, action }); setManagementLimit(''); setManagementBudget('1000'); setHedgeSide('buy'); setHedgeQuantity('1');
+  function manage(operation: F5Operation, action: 'close' | 'hedge' | 'roll') {
+    invalidate(); rollSequence.current++; setManagement({ operation, action }); setManagementLimit(''); setManagementBudget('1000'); setHedgeSide('buy'); setHedgeQuantity('1'); setRollContracts([]); setRollContract(''); setRollLoading(false);
+  }
+  async function loadRollContracts() {
+    if (!management || management.action !== 'roll' || busyRef.current || rollLoading) return;
+    invalidate(); const sequence = ++rollSequence.current; setRollLoading(true); setRollContracts([]); setRollContract('');
+    try {
+      const result = await api<{ contracts: F5Contract[]; complete: boolean; feed: 'indicative' | 'opra' }>(`/api/f5?resource=contracts&underlying=${encodeURIComponent(management.operation.underlying)}&expiry=${encodeURIComponent(rollExpiry)}`);
+      if (mounted.current && sequence === rollSequence.current) setRollContracts(result.contracts.filter(contract => contract.type === 'call' && contract.expiry === rollExpiry && contract.tradable && contract.size === 100 && contract.style === 'american'));
+    } catch (failure) { if (mounted.current && sequence === rollSequence.current) setError(failure instanceof Error ? failure.message : 'No se pudieron consultar las calls para la renovación.'); }
+    finally { if (mounted.current && sequence === rollSequence.current) setRollLoading(false); }
   }
   function prepareManagement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!management) return;
     const base = { operationId: management.operation.id, limitPrice: Number(managementLimit), maxCapitalUsd: Number(managementBudget) };
-    void prepare(management.action === 'close' ? { action: 'close', ...base } : { action: 'hedge', ...base, side: hedgeSide, quantity: Number(hedgeQuantity) });
+    if (management.action === 'roll' && !rollContract) { setError('Consulta y selecciona la nueva call corta para revisar la renovación.'); return; }
+    void prepare(management.action === 'close' ? { action: 'close', ...base } : management.action === 'roll' ? { action: 'roll', ...base, newShortContract: rollContract } : { action: 'hedge', ...base, side: hedgeSide, quantity: Number(hedgeQuantity) });
   }
 
   const selectionLabels = strategy === 'wheel' ? [wheelPhase === 'put' ? 'PUT para vender con efectivo reservado' : 'CALL para vender cubierta por acciones'] : strategy === 'pmcc' ? ['CALL larga · comprar 1', 'CALL corta · vender 1'] : strategy === 'backspread' ? ['CALL de strike inferior · vender 1', 'CALL de strike superior · comprar 2'] : ['CALL · comprar 1', 'PUT · comprar 1'];
@@ -192,6 +210,10 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
       {account && <div className="f5-account"><div><span>Patrimonio Paper</span><strong>{cash(account.equity)}</strong></div><div><span>Efectivo</span><strong>{cash(account.cash)}</strong></div><div><span>Poder de compra de opciones</span><strong>{cash(account.optionsBuyingPower)}</strong></div><div><span>Poder de compra de la cuenta</span><strong>{cash(account.buyingPower)}</strong></div></div>}
     </section>
 
+    <nav className="f5-workspace-tabs" aria-label="Secciones de opciones F5"><button className={tab === 'operations' ? 'active' : ''} aria-current={tab === 'operations' ? 'page' : undefined} onClick={() => setTab('operations')}>Operaciones F5</button><button className={tab === 'control' ? 'active' : ''} aria-current={tab === 'control' ? 'page' : undefined} onClick={() => setTab('control')}>Control y automatización F5</button><button className={tab === 'report' ? 'active' : ''} aria-current={tab === 'report' ? 'page' : undefined} onClick={() => setTab('report')}>Reporte F5</button></nav>
+    {tab === 'control' && <F5ControlPanel available={available} operations={operations} preparedOpening={preview?.request.action === 'open' ? preview.request : null} onChange={() => void refresh()}/>}
+    {tab === 'report' && <F5ReportPanel available={available}/>}
+    {tab === 'operations' && <>
     {mode === 'trade' && <section className="panel f5-builder"><div className="f5-heading"><div><span className="f5-kicker">01 · PREPARA LA ESTRATEGIA</span><h2>Elige contratos y define tu límite</h2><p>Una revisión no envía órdenes. El servidor vuelve a comprobar la cuenta, las cotizaciones y la cobertura antes del envío.</p></div></div>
       <form onSubmit={prepareOpening}>
         <fieldset disabled={busy} className="f5-fields-reset"><div className="f5-form-grid">
@@ -224,5 +246,6 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     })}</div> : <p className="f5-empty">{available ? 'Todavía no hay órdenes F5 enviadas desde este servicio. Prepara y revisa una estrategia para comenzar.' : 'El registro se recupera desde el servicio de ejecución al conectar la cuenta.'}</p>}</section>
 
     <section className="panel f5-activities"><div className="f5-heading"><div><span className="f5-kicker">EVENTOS DEL BRÓKER</span><h2>Asignaciones, ejercicios y vencimientos</h2><p>Alpaca Paper puede publicar estas actividades al día siguiente. Las posiciones de la cuenta son la referencia actual para comprobar acciones disponibles.</p></div></div>{status?.activities.length ? <div className="f5-activity-list">{status.activities.map(activity => <article key={activity.id}><strong>{activity.symbol || 'Cuenta'} · {activity.type}</strong><p>{activity.description}</p><small>{activity.date} · cantidad {activity.quantity}</small></article>)}</div> : <p className="f5-empty">{available ? 'No se recibieron actividades de opciones en la consulta actual.' : 'Las actividades se consultarán directamente en Alpaca al conectar.'}</p>}</section>
+    </>}
   </div>;
 }
