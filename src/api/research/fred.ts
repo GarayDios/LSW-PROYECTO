@@ -44,10 +44,20 @@ export async function fetchFredMacro(config: FredResearchConfig | undefined, asO
       result.treasury3MonthPercent = variable(rate.value, rate, 'DGS3MO (% anual)');
       if (rate.value > -100) result.riskFreeRate = variable(Math.log1p(rate.value / 100), rate, 'aproximación continua log(1 + DGS3MO/100)', 'estimated');
     } else if (rate) warnings.push('DGS3MO tiene más de diez días; no se utiliza como tasa actual para valorar opciones.');
-    const latestCpi = inflation[0];
-    const priorDate = latestCpi ? `${Number(latestCpi.date.slice(0, 4)) - 1}${latestCpi.date.slice(4)}` : '';
-    const priorCpi = inflation.find(item => item.date === priorDate);
-    if (latestCpi && priorCpi && priorCpi.value > 0) result.inflationYearOverYear = variable(latestCpi.value / priorCpi.value - 1, latestCpi, 'CPIAUCSL: índice / índice mismo mes año anterior − 1', 'estimated');
+    // Use the newest complete annual pair, never a different comparison month.
+    const cpiPair = inflation.map(current => ({ current, prior: inflation.find(item =>
+      item.date === `${Number(current.date.slice(0, 4)) - 1}${current.date.slice(4)}`) }))
+      .find(pair => pair.current.value > 0 && pair.prior && pair.prior.value > 0);
+    if (cpiPair?.prior) {
+      const month = cpiPair.current.date.slice(0, 7);
+      result.inflationYearOverYear = variable(cpiPair.current.value / cpiPair.prior.value - 1, cpiPair.current,
+        `CPIAUCSL: período ${month}; índice / índice mismo mes año anterior − 1`, 'estimated');
+      if (cpiPair.current !== inflation[0]) {
+        const reason = `Última inflación interanual calculable: ${month}. El índice más reciente no tiene una comparación anual completa en esta consulta.`;
+        result.inflationYearOverYear.reason = reason;
+        warnings.push(reason);
+      }
+    }
     if (gdp[0]) result.realGdpGrowth = variable(gdp[0].value / 100, gdp[0], 'A191RL1Q225SBEA: crecimiento trimestral real anualizado / 100');
     for (const status of statuses) if (status.status === 'rejected') warnings.push(providerFailure(SOURCE, status.reason).message);
     const count = [result.riskFreeRate, result.inflationYearOverYear, result.realGdpGrowth].filter(item => item.value !== null).length;

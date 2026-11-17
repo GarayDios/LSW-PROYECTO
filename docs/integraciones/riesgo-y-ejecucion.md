@@ -1,6 +1,6 @@
 # Ciclo de operación y controles de riesgo
 
-El servicio de `services/trading-runner/` evalúa planes de acciones completas exclusivamente en Alpaca Paper. También aloja el flujo separado de [opciones F5 con revisión por orden](f5-alpaca-paper.md), habilitado mediante `ALPACA_F5_ENABLED`. Los controles de planes descritos a continuación corresponden al runner de acciones; F5 usa permisos de opciones, garantías, límite de capital por revisión y comprobaciones de órdenes y posiciones. Los ciclos educativos antiguos conservan su contabilidad independiente. Los planes de acciones nacen desactivados.
+El servicio de `services/trading-runner/` opera acciones completas exclusivamente en Alpaca Paper. Las simulaciones F5, sus posiciones y su efectivo son independientes de la cuenta del bróker. Los planes nacen desactivados y los planes existentes conservan sus políticas.
 
 ## Conciliación
 

@@ -7,9 +7,11 @@ import './company-research-panel.css';
 
 const timestamp = (value: string | null) => value ? new Date(value).toLocaleString('es-MX', { timeZone: 'America/New_York' }) : 'Sin fecha';
 function Variable({ label, variable, format = 'number' }: { label: string; variable: ResearchVariable; format?: 'number' | 'money' | 'percent' }) {
-  const present = variable.value !== null && Number.isFinite(variable.value);
-  const value = !present ? 'No disponible' : format === 'percent' ? `${(variable.value! * 100).toFixed(2)}%` : new Intl.NumberFormat('en-US', format === 'money' ? { style: 'currency', currency: 'USD', maximumFractionDigits: 2 } : { maximumFractionDigits: 3 }).format(variable.value!);
-  return <div className={`research-variable ${present ? '' : 'research-missing'}`}><div><span>{label}</span><strong>{value}</strong></div><small>{variable.source} · {variable.kind === 'observed' ? 'Observado' : variable.kind === 'estimated' ? 'Estimado' : variable.kind === 'assumed' ? 'Supuesto explícito' : 'Faltante'}</small><small>Observado: {timestamp(variable.observedAt)} · Disponible: {timestamp(variable.availableAt)}</small>{variable.reason && <p>{variable.reason}</p>}</div>;
+  const previous = variable.value === null ? variable.lastReceived : undefined;
+  const displayValue = variable.value ?? previous?.value ?? null;
+  const present = displayValue !== null && Number.isFinite(displayValue);
+  const value = !present ? 'No disponible' : format === 'percent' ? `${(displayValue! * 100).toFixed(2)}%` : new Intl.NumberFormat('en-US', format === 'money' ? { style: 'currency', currency: 'USD', maximumFractionDigits: 2 } : { maximumFractionDigits: 3 }).format(displayValue!);
+  return <div className={`research-variable ${present ? '' : 'research-missing'}`}><div><span>{label}</span><strong>{value}{previous && <small>Último dato recibido · anterior</small>}</strong></div><small>{variable.source} · {previous ? 'Referencia anterior; excluida del cálculo actual' : variable.kind === 'observed' ? 'Observado' : variable.kind === 'estimated' ? 'Estimado' : variable.kind === 'assumed' ? 'Supuesto explícito' : 'Faltante'}</small><small>Observado: {timestamp(previous?.observedAt ?? variable.observedAt)} · Disponible: {timestamp(previous?.receivedAt ?? variable.availableAt)}</small>{variable.reason && <p>{variable.reason}</p>}</div>;
 }
 
 export default function CompanyResearchPanel({ research, loading, error, onRetry, onCurrent, strategy, days }: { research: ResearchSnapshot | null; loading: boolean; error: string; onRetry: () => void; onCurrent?: () => void; strategy: StrategyId; days: number }) {

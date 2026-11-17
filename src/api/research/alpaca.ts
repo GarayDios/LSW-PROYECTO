@@ -71,15 +71,33 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
       const greeks = record(snap.greeks);
       const bidNumber = numeric(quote.bp);
       const askNumber = numeric(quote.ap);
-      const validQuote = quoteAt !== null && acquiredAt >= quoteAt && now.getTime() - Date.parse(quoteAt) <= 60 * 60_000
-        && bidNumber !== null && askNumber !== null && bidNumber >= 0 && askNumber > 0 && bidNumber <= askNumber;
+      const quoteProblem = quoteAt === null
+        ? 'Falta la cotización o su fecha verificable.'
+        : Date.parse(quoteAt) > now.getTime()
+          ? 'La fecha de la cotización es posterior a la consulta; no se utiliza.'
+          : bidNumber === null || askNumber === null
+            ? 'Falta el precio de compra (bid) o de venta (ask).'
+            : bidNumber < 0 || askNumber <= 0 || bidNumber > askNumber
+              ? 'Los precios bid/ask no forman una cotización válida.'
+              : now.getTime() - Date.parse(quoteAt) > 60 * 60_000
+                ? `La última cotización es de ${quoteAt} (UTC) y supera el límite de una hora. Actualiza durante la sesión de mercado; puede seguir sin haber cotización reciente para este contrato.`
+                : null;
+      const validQuote = quoteProblem === null;
       const raw = (value: unknown, label: string, observedAt: string | null, kind: 'observed' | 'estimated' = 'observed'): ResearchVariable => {
         const parsed = numeric(value);
         return parsed === null || !observedAt ? missingVariable(`Alpaca ${feed} · ${label}`, 'Dato no publicado o sin fecha verificable.')
           : beforeCutoff({ value: parsed, source: `Alpaca ${feed} · ${label}`, observedAt, availableAt: acquiredAt, kind }, asOf);
       };
-      const quoteVar = (value: unknown, label: string, kind: 'observed' | 'estimated' = 'observed') => validQuote ? raw(value, label, quoteAt, feed === 'indicative' ? 'estimated' : kind)
-        : missingVariable(`Alpaca ${feed} · ${label}`, 'La cotización falta, tiene spread inválido o supera una hora de antigüedad.');
+      const staleValidQuote = quoteAt !== null && Date.parse(quoteAt) <= now.getTime()
+        && now.getTime() - Date.parse(quoteAt) > 60 * 60_000
+        && bidNumber !== null && askNumber !== null && bidNumber >= 0 && askNumber > 0 && bidNumber <= askNumber;
+      const quoteVar = (value: unknown, label: string, kind: 'observed' | 'estimated' = 'observed'): ResearchVariable => {
+        if (validQuote) return raw(value, label, quoteAt, feed === 'indicative' ? 'estimated' : kind);
+        const missing = missingVariable(`Alpaca ${feed} · ${label}`, quoteProblem!);
+        const parsed = numeric(value);
+        if (staleValidQuote && parsed !== null) missing.lastReceived = { value: parsed, observedAt: quoteAt!, receivedAt: acquiredAt };
+        return missing;
+      };
       const iv = numeric(snap.impliedVolatility);
       contracts.push({
         symbol: item.symbol, underlyingSymbol: symbol, type: item.type as 'call' | 'put', expiration: item.expiration_date,
@@ -87,7 +105,7 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
         strike: raw(item.strike_price, 'strike contractual', acquiredAt),
         impliedVolatility: iv !== null && iv > 0 ? quoteVar(iv, 'IV implícita publicada por proveedor') : missingVariable(`Alpaca ${feed} · IV`, 'No hay IV positiva publicada para este contrato.'),
         bid: quoteVar(bidNumber, 'bid'), ask: quoteVar(askNumber, 'ask'),
-        premium: quoteVar(validQuote ? (bidNumber! + askNumber!) / 2 : null, 'prima media bid/ask (estimada, por acción)', 'estimated'),
+        premium: quoteVar(validQuote || staleValidQuote ? (bidNumber! + askNumber!) / 2 : null, 'prima media bid/ask (estimada, por acción)', 'estimated'),
         openInterest: raw(item.open_interest, 'open interest contractual', timestamp(item.open_interest_date)),
         delta: quoteVar(greeks.delta, 'delta publicada'), gamma: quoteVar(greeks.gamma, 'gamma publicada'),
         theta: quoteVar(greeks.theta, 'theta publicada'), vega: quoteVar(greeks.vega, 'vega publicada'),
@@ -95,7 +113,7 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
     }
     return { contracts, feed, complete, warnings, status: {
       source: 'Alpaca opciones', status: complete && contracts.length ? 'ready' : 'partial',
-      message: contracts.length ? `${contracts.length} contratos con metadatos y snapshot; feed ${feed}.` : 'No hay contratos coincidentes con snapshot y metadatos observados.',
+      message: contracts.length ? `${contracts.length} contratos encontrados; ${contracts.filter(contract => contract.premium.value !== null).length} con cotización válida de hasta una hora. Feed ${feed}; esto no garantiza todas las entradas del modelo.` : 'No hay contratos coincidentes con snapshot y metadatos observados.',
     } };
   } catch (error) { return { contracts: [], feed, complete: false, status: providerFailure('Alpaca opciones', error), warnings }; }
 }

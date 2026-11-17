@@ -96,7 +96,7 @@ tepic-terminal/
 | Reglas de entrada y prueba temporal | `src/features/analysis/signals.ts`. |
 | Ejecución automática con el navegador cerrado | `services/trading-runner/`; requiere un proceso activo y almacenamiento duradero. |
 
-`src/api/` reúne autenticación, investigación, datos reales y los proxies del bróker. Las rutas HTTP del framework están en `app/api/`. F5 usa `app/api/f5/route.ts`, lógica de acceso en `src/api/f5/`, cliente de opciones en `src/api/brokers/alpaca/options.ts`, interfaz y contratos en `src/features/f5/`, y registro duradero en `services/trading-runner/f5-*`. Las claves permanecen en servidor y el servicio Node realiza los envíos a Alpaca Paper.
+`src/api/` reúne la infraestructura de integración que ya existe. Actualmente la aplicación usa datos de muestra y operaciones simuladas; no contiene una API de cotizaciones ni de envío de órdenes a un bróker. Las rutas HTTP que se añadan al framework deben declararse en `app/api/`; su lógica de integración puede ubicarse en `src/api/`.
 
 Los imports con `@/` apuntan a `src/`. Las funciones que se ejecutan directamente con Node en las pruebas usan rutas relativas con extensión `.ts`.
 

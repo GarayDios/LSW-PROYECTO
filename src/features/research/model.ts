@@ -9,6 +9,8 @@ export type ResearchVariable = {
   availableAt: string | null;
   kind: 'observed' | 'estimated' | 'missing' | 'assumed';
   reason?: string;
+  /** Display-only previous quote; never an input to current valuation. */
+  lastReceived?: { value: number; observedAt: string; receivedAt: string };
 };
 
 export type ProviderStatus = {

@@ -1,7 +1,3 @@
-# Estado actual de F5
-
-La interfaz principal ahora utiliza [F5 con contratos de Alpaca Paper](../integraciones/f5-alpaca-paper.md). El recorrido de simulación de este documento corresponde al laboratorio anterior y sirve para interpretar sus registros archivados. Las nuevas aperturas, cierres y coberturas se revisan y confirman contra el bróker; el archivo anterior queda en solo lectura.
-
 # Ciclos de inversión · TEPIC 1.1
 
 Este laboratorio añade posiciones y resultados a las cuatro estrategias F5. Utiliza dinero ficticio, precios de escenario y un reloj que controla el usuario. No conecta con un bróker ni espera a que transcurra tiempo real.

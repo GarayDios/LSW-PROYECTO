@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { createRunner, type RunnerOptions } from './runner.ts';
 import { ownerSchema, planInputSchema } from './model.ts';
 import { createAlertDispatcher, readAlertConfig, type AlertConfig } from './alerts.ts';
-import { createF5Service } from './f5-service.ts';
 
 const MAX_BODY = 16384;
 const switchSchema = z.object({ ownerId: ownerSchema, enabled: z.boolean() }).strict();
@@ -35,7 +34,7 @@ async function body(request: IncomingMessage): Promise<unknown> {
 }
 
 /** Internal service. The application's authenticated proxy supplies ownerId. */
-export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch; f5?: ReturnType<typeof createF5Service> }) {
+export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch }) {
   const expected = Buffer.from(options.token);
   if (expected.length < 32 || expected.length > 512 || /[\r\n]/.test(options.token)) throw new Error('Configure un token privado de entre 32 y 512 bytes.');
   const runner = createRunner(options);
@@ -62,26 +61,6 @@ export function createRunnerService(options: RunnerOptions & { token: string; al
       const header = request.headers.authorization;
       const supplied = header?.startsWith('Bearer ') ? Buffer.from(header.slice(7)) : Buffer.alloc(0);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return respond(response, 401, { error: 'unauthorized' });
-      if (url.pathname.startsWith('/f5/')) {
-        if (!options.f5) return respond(response, 503, { error: { code: 'f5_not_configured', message: 'El servicio F5 no está configurado.' } });
-        let payload: unknown;
-        let ownerId: string;
-        if (request.method === 'GET') ownerId = owner(url.searchParams.get('ownerId'));
-        else if (request.method === 'POST') {
-          const parsed = z.object({ ownerId: ownerSchema }).passthrough().safeParse(await body(request));
-          if (!parsed.success) throw new RequestError(400, 'invalid_f5_request');
-          ownerId = owner(parsed.data.ownerId);
-          const { ownerId: _suppliedOwner, ...input } = parsed.data;
-          payload = input;
-        } else return respond(response, 405, { error: { code: 'method_not_allowed', message: 'La operación F5 no admite ese método.' } });
-        const requiresLease = url.pathname !== '/f5/contracts';
-        const leaseKey = `tick:${ownerId}`;
-        if (requiresLease && !options.store.acquireLease(leaseKey, now(), now() + 300000)) return respond(response, 409, { error: { code: 'f5_request_busy', message: 'La cuenta está procesando otra operación. Actualiza el estado antes de continuar.' } });
-        try {
-          const result = await options.f5.handle(request.method, url.pathname + url.search, ownerId, payload);
-          return respond(response, result.status, result.value);
-        } finally { if (requiresLease) options.store.releaseLease(leaseKey); }
-      }
       if (request.method === 'GET') {
         const ownerId = owner(url.searchParams.get('ownerId'));
         if (url.pathname === '/status') return respond(response, 200, runner.status());
@@ -144,8 +123,8 @@ export function createRunnerService(options: RunnerOptions & { token: string; al
 }
 
 async function main(): Promise<void> {
-  const [{ readBrokerConfig, AlpacaPaperClient }, { fetchAlpacaHistory }, { openRunnerStore }, { AlpacaOptionsClient }, { openF5Store }] = await Promise.all([
-    import('../../src/api/brokers/index.ts'), import('../../src/api/market/alpaca-history.ts'), import('./store.ts'), import('../../src/api/brokers/alpaca/options.ts'), import('./f5-store.ts'),
+  const [{ readBrokerConfig, AlpacaPaperClient }, { fetchAlpacaHistory }, { openRunnerStore }] = await Promise.all([
+    import('../../src/api/brokers/index.ts'), import('../../src/api/market/alpaca-history.ts'), import('./store.ts'),
   ]);
   const config = readBrokerConfig(process.env);
   const ownerId = ownerSchema.parse(process.env.BROKER_OWNER_USER_ID);
@@ -153,14 +132,8 @@ async function main(): Promise<void> {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Puerto inválido.');
   const alerts = readAlertConfig(process.env);
   const store = openRunnerStore(process.env.TRADING_RUNNER_DB || '.sites-runtime/trading-runner.sqlite');
-  const f5Store = openF5Store(process.env.TRADING_RUNNER_DB || '.sites-runtime/trading-runner.sqlite');
-  const optionsFeed = z.enum(['indicative', 'opra']).parse(process.env.ALPACA_OPTIONS_FEED || 'indicative');
-  const f5 = createF5Service({ store: f5Store, ownerId, enabled: process.env.ALPACA_F5_ENABLED === 'true', feed: optionsFeed,
-    broker: config ? new AlpacaOptionsClient(config, { feed: optionsFeed }) : null,
-    reservedShares: underlying => store.listOwnedPositions(ownerId).filter(position => position.symbol === underlying).reduce((sum, position) => sum + Math.max(0, position.quantity), 0),
-  });
   const service = createRunnerService({
-    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts, f5,
+    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts,
     token: process.env.TRADING_RUNNER_TOKEN ?? '', enabled: process.env.ALPACA_AUTOMATION_ENABLED === 'true',
     maxOrderUsd: Number(process.env.TRADING_MAX_ORDER_USD || 1000),
     ...(process.env.TRADING_MAX_DAILY_LOSS_USD ? { maxDailyLossUsd: Number(process.env.TRADING_MAX_DAILY_LOSS_USD) } : {}),
@@ -175,7 +148,7 @@ async function main(): Promise<void> {
   console.log(`Servicio de automatización Alpaca Paper disponible en el puerto ${port}.`);
   const shutdown = () => {
     service.stopLoop();
-    service.server.close(() => { f5Store.close(); store.close(); process.exit(0); });
+    service.server.close(() => { store.close(); process.exit(0); });
     service.server.closeIdleConnections();
   };
   process.once('SIGINT', shutdown);

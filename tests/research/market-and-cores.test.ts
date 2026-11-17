@@ -123,3 +123,27 @@ test('future-published or absent inputs invalidate modeling even when a numeric 
   research.macro.riskFreeRate = missingVariable('FRED', 'missing');
   assert.equal(rankObservedCompanies([research], ['bsm'], 'wheel', 35)[0].score, null);
 });
+
+import { educationalOptionScenario } from '../../src/features/research/educational-scenario.ts';
+import { blackScholes } from '../../src/cores/bsm.ts';
+test('educational Greeks use explicit dividends and dated prior IV without changing observed inputs', () => {
+  const research = snapshot();
+  research.market.stale = false;
+  research.market.spot = variable(105);
+  research.macro.riskFreeRate = variable(.04);
+  const option = contract();
+  option.impliedVolatility = { ...missingVariable('Alpaca', 'stale'), lastReceived: { value: .3, observedAt: '2026-11-12T20:00:00Z', receivedAt: cutoff } };
+  research.options.contracts = [option];
+  const scenario = educationalOptionScenario(research, 'wheel', 35, 1)!;
+  assert.equal(scenario.dividendYield, .01);
+  assert.equal(scenario.volatility, .3);
+  assert.match(scenario.volatilityLabel, /IV anterior/);
+  const result = blackScholes(scenario);
+  assert.ok([result.delta, result.gamma, result.theta, result.vega].every(Number.isFinite));
+  assert.equal(observedOptionInputs(research, option).input, null);
+  option.impliedVolatility.lastReceived!.observedAt = '2026-10-01T00:00:00Z';
+  assert.match(educationalOptionScenario(research, 'wheel', 35, 0)!.volatilityLabel, /no es IV/);
+  research.macro.riskFreeRate.availableAt = '2026-12-01T00:00:00Z';
+  assert.equal(educationalOptionScenario(research, 'wheel', 35, 0), null);
+  assert.equal(educationalOptionScenario(research, 'wheel', 35, NaN), null);
+});

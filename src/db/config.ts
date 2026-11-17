@@ -32,3 +32,21 @@ export function readDatabaseConfig(values: Record<string, string | undefined>): 
   }
   return { supabaseUrl: serverUrl(url), supabaseKey: key, mongoBridge: bridgeUrl && bridgeToken ? { url: serverUrl(bridgeUrl), token: bridgeToken } : null };
 }
+
+export type SelectedDatabaseConfig = DatabaseConfig | { provider: 'mongodb'; connection: { url: string; token: string }; mongoBridge: null };
+/** Explicit remote selections never silently downgrade to browser storage. */
+export function readSelectedDatabaseConfig(values: Record<string, string | undefined>, provider: string | null): SelectedDatabaseConfig | null {
+  if (provider === 'local') return null;
+  if (provider === 'mongodb') {
+    const url = values.MONGO_BRIDGE_URL?.trim(), token = values.MONGO_BRIDGE_TOKEN?.trim();
+    if (!url || !token || token.length < 32 || token.length > 512 || /[\r\n]/.test(token)) throw new DatabaseConfigError();
+    return { provider: 'mongodb', connection: { url: serverUrl(url), token }, mongoBridge: null };
+  }
+  if (provider === 'supabase') {
+    const config = readDatabaseConfig({ ...values, MONGO_BRIDGE_URL: '', MONGO_BRIDGE_TOKEN: '' });
+    if (!config) throw new DatabaseConfigError();
+    return config;
+  }
+  if (provider !== null) throw new DatabaseConfigError();
+  return readDatabaseConfig(values);
+}

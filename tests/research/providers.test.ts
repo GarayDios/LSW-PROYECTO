@@ -65,6 +65,9 @@ test('historical cuts never query a latest chain and stale option quotes do not 
     ? json({ snapshots: { first: { ...snapshot(), latestQuote: { t: '2026-11-12T16:00:00Z', bp: 4, ap: 6 } } } })
     : json({ option_contracts: [contract('first')] }), now);
   assert.equal(stale.contracts[0].premium.value, null);
+  assert.equal(stale.contracts[0].premium.lastReceived?.value, 5);
+  assert.equal(stale.contracts[0].impliedVolatility.lastReceived?.value, .25);
+  assert.equal(stale.contracts[0].premium.lastReceived?.observedAt, "2026-11-12T16:00:00.000Z");
   assert.equal(stale.contracts[0].impliedVolatility.value, null);
 });
 
@@ -166,4 +169,37 @@ test('news excludes headlines updated after decision cutoff and unsafe links', a
   assert.equal(news.articles.length, 1);
   assert.equal(news.articles[0].headline, 'Known headline');
   assert.equal(news.articles[0].url, null);
+});
+
+test('quote failures explain missing, invalid, future and stale prices separately', async () => {
+  for (const [quote, reason] of [
+    [{}, /fecha verificable/],
+    [{ t: asOf, bp: 7, ap: 6 }, /no forman/],
+    [{ t: '2026-11-14T16:00:00Z', bp: 4, ap: 6 }, /posterior/],
+    [{ t: '2026-11-12T16:00:00Z', bp: 4, ap: 6 }, /una hora/],
+  ] as const) {
+    const result = await fetchAlpacaOptions(config, 'AAPL', asOf, async input => String(input).includes('/snapshots/')
+      ? json({ snapshots: { first: { ...snapshot(), latestQuote: quote } } })
+      : json({ option_contracts: [contract('first')] }), now);
+    assert.equal(result.contracts[0].premium.value, null);
+    assert.equal(result.contracts[0].delta.value, null);
+    assert.match(result.contracts[0].bid.reason!, reason);
+    if (!("t" in quote) || quote.t !== "2026-11-12T16:00:00Z") assert.equal(result.contracts[0].bid.lastReceived, undefined);
+    assert.match(result.status.message, /0 con cotización válida/);
+  }
+});
+
+test('inflation uses the newest complete same-month annual pair with its actual period', async () => {
+  const result = await fetchFredMacro({ apiKey: 'test' }, asOf, async input => {
+    const id = new URL(String(input)).searchParams.get('series_id');
+    return json({ observations: id === 'CPIAUCSL' ? [
+      { date: '2026-10-01', value: '110' }, { date: '2025-10-01', value: '.' },
+      { date: '2026-09-01', value: '103' }, { date: '2025-09-01', value: '100' },
+      { date: '2026-12-01', value: '999' },
+    ] : [] });
+  });
+  assert.ok(Math.abs(result.inflationYearOverYear.value! - .03) < 1e-12);
+  assert.equal(result.inflationYearOverYear.observedAt, '2026-09-01T00:00:00.000Z');
+  assert.match(result.inflationYearOverYear.source, /2026-09/);
+  assert.match(result.inflationYearOverYear.reason!, /comparación anual completa/);
 });

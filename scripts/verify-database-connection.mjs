@@ -25,4 +25,5 @@ try {
     }
   }
 } catch { result.supabase = 'invalid_configuration'; process.exitCode = 1; }
+if (result.supabase !== 'ready' || result.mongoBridge !== 'ready') process.exitCode = 1;
 console.log(JSON.stringify(result, null, 2));

@@ -3,8 +3,7 @@ import {mkdir,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { installF5QA, runF5Scenario } from './f5-browser-scenario.mjs';
-const mode=process.argv[2]||'f5';
+const mode=process.argv[2]||'flow';
 const baseURL=process.env.QA_URL||'http://127.0.0.1:5173';
 const profile=await mkdtemp(path.join(tmpdir(),'tepic-qa-'));
 const chrome=spawn(process.env.CHROME_BIN||'C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=9333',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -155,7 +154,6 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
-  if(mode==='f5')await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installF5QA.toString()})();`});
   await send('Page.navigate',{url:baseURL+'/'});
   if(mode==='persistence'){
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
@@ -209,8 +207,6 @@ try{
     await screenshot('persistence-desktop.png',1440,1000);await screenshot('persistence-mobile.png',390,844);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Persistence UI fits mobile');
     console.log('PASS: simulated persistence API, loading guard, explicit legacy import, sequential revision saves, conflict draft, account reload and mobile. No live database connection is claimed.');
-  }else if(mode==='f5'){
-    await runF5Scenario({ evaluate, click, input, until, send, screenshot });
   }else if(mode==='automation'){
     await until(`document.querySelectorAll('.broker-plan').length===1`);
     assert.equal(await evaluate(`document.querySelector('.broker-plan button').disabled`),false,'Matching disabled plan can be reviewed for activation');

@@ -1,7 +1,3 @@
-# Opciones F5 en Alpaca Paper
-
-Para operar la versión actual consulta [la guía de F5 Paper](../integraciones/f5-alpaca-paper.md): contratos existentes, revisión, confirmación, órdenes y posiciones del bróker. Los pasos de simulación descritos en este manual corresponden al laboratorio anterior, conservado como archivo de solo lectura. El saldo de Alpaca Paper sigue siendo virtual.
-
 # Guía de usuario · TEPIC Options Lab
 
 Versión 1.0 · 9 de noviembre de 2026

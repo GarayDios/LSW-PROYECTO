@@ -17,7 +17,5 @@ declare namespace Cloudflare {
     TRADING_RUNNER_URL?: string;
     TRADING_RUNNER_TOKEN?: string;
     ALPACA_AUTOMATION_ENABLED?: string;
-    ALPACA_F5_ENABLED?: string;
-    ALPACA_F5_AUTOMATION_ENABLED?: string;
   }
 }

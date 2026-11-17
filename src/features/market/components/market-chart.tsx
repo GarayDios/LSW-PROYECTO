@@ -59,7 +59,7 @@ export default function MarketChart(props: MarketChartProps) {
   const candles = useMemo(() => aggregateCandles(history), [history]);
   const issue = historyIssue(startDate, endDate);
   if (props.loading) return <div className="history-loading" role="status">Consultando las velas del rango seleccionado…</div>;
-  if (props.error) return <div className="history-query-error" role="alert"><p>{props.error}</p>{props.onRetry && <button className="secondary-button" onClick={props.onRetry}>Volver a consultar</button>}</div>;
+  if (props.error) return <div className="history-query-error" role="alert"><p>{props.error}</p>{props.error.includes("Inicia sesión") && <a className="primary-button small" href="/signin-with-chatgpt?return_to=%2F" target="_self">Iniciar sesión para consultar datos</a>}{props.onRetry && <button className="secondary-button" onClick={props.onRetry}>Volver a consultar</button>}</div>;
   if (!candles.length) return <div className="history-empty" role="status">{issue || 'No hay sesiones entre estas fechas. Elige un rango que incluya lunes a viernes.'}</div>;
   return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, selectedCores, volatility, days, rate, dividendYield }} candles={candles} history={history}/>;
 }

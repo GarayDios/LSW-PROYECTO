@@ -44,7 +44,8 @@ export function createResearchHandlers(dependencies: Dependencies) {
   function decisionTime(input: { start: string; end: string; cutoff?: string }, now: number) {
     if (input.start > input.end || new Date(input.start + 'T00:00:00Z').toISOString().slice(0, 10) !== input.start || new Date(input.end + 'T00:00:00Z').toISOString().slice(0, 10) !== input.end) throw new ApiError('invalid_dates', 'Revisa el rango de fechas.');
     const requested = input.cutoff ? Date.parse(input.cutoff) : now;
-    const cutoff = Math.min(requested, Date.parse(input.end + 'T23:59:59.999Z'), now);
+    const today = new Intl.DateTimeFormat('en-CA', {timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
+    const cutoff = Math.min(requested, input.end === today ? now : Date.parse(input.end + 'T23:59:59.999Z'), now);
     if (!Number.isFinite(cutoff) || cutoff < Date.parse(input.start + 'T00:00:00Z')) throw new ApiError('invalid_cutoff', 'La fecha de decisión debe quedar dentro o después del inicio del histórico.');
     return new Date(cutoff);
   }

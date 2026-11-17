@@ -1,14 +1,15 @@
+import { MongoPrimaryRepository } from '../../db/mongodb/primary.ts';
 import { z } from 'zod';
-import { DatabaseConfigError, type DatabaseConfig } from '../../db/config.ts';
+import { DatabaseConfigError, type SelectedDatabaseConfig } from '../../db/config.ts';
 import { MAX_STATE_BYTES, terminalStateSchema } from '../../db/state.ts';
 import { flushAnalysisArchive } from '../../db/mongodb/archive.ts';
 import { PersistenceError, SupabaseRepository, type PersistenceOwner } from '../../db/supabase/client.ts';
 
 type Repository = Pick<SupabaseRepository, 'load' | 'save' | 'pending' | 'acknowledge'>;
 type Dependencies = {
-  config(): DatabaseConfig | null;
+  config(request?: Request): SelectedDatabaseConfig | null;
   owner(): Promise<PersistenceOwner | null>;
-  repository?(config: DatabaseConfig): Repository;
+  repository?(config: SelectedDatabaseConfig): Repository;
   fetcher?: typeof fetch;
 };
 const saveSchema = z.object({ expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), state: terminalStateSchema }).strict();
@@ -61,17 +62,17 @@ function failure(error: unknown): Response {
 
 /** Identity always comes from the authenticated server request, never the JSON body. */
 export function createPersistenceHandlers(dependencies: Dependencies) {
-  async function context() {
-    const config = dependencies.config();
+  async function context(request?: Request) {
+    const config = dependencies.config(request);
     if (!config) return null;
     const owner = await dependencies.owner();
     if (!owner) throw new HttpFailure(401, 'auth_required', 'Inicia sesión para guardar tus datos en la nube.');
-    return { config, owner, repository: dependencies.repository?.(config) ?? new SupabaseRepository(config, dependencies.fetcher) };
+    return { config, owner, repository: dependencies.repository?.(config) ?? ('provider' in config ? new MongoPrimaryRepository(config.connection, dependencies.fetcher) : new SupabaseRepository(config, dependencies.fetcher)) };
   }
   return {
-    async GET(): Promise<Response> {
+    async GET(request?: Request): Promise<Response> {
       try {
-        const current = await context();
+        const current = await context(request);
         if (!current) return json({ mode: 'local' });
         const { owner, repository, config } = current;
         await flushAnalysisArchive(repository, owner.id, config.mongoBridge, dependencies.fetcher);
@@ -82,7 +83,7 @@ export function createPersistenceHandlers(dependencies: Dependencies) {
     async PUT(request: Request): Promise<Response> {
       try {
         requireSameOrigin(request);
-        const current = await context();
+        const current = await context(request);
         if (!current) throw new HttpFailure(503, 'persistence_unavailable', 'El terminal está usando almacenamiento local.');
         const parsed = saveSchema.safeParse(await readBody(request));
         if (!parsed.success) throw new HttpFailure(400, 'invalid_state', 'Revisa el formato de las listas, órdenes y ciclos.');

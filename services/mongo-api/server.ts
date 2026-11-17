@@ -1,3 +1,5 @@
+import { createStateRepository, stateInputSchema, type StateRepository } from './state-repository.ts';
+import { PersistenceError } from '../../src/db/supabase/client.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -52,7 +54,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   });
 }
 
-export function createSnapshotServer(options: { token: string; repository: SnapshotRepository }) {
+export function createSnapshotServer(options: { token: string; repository: SnapshotRepository; stateRepository?: StateRepository }) {
   const token = Buffer.from(options.token);
   if (token.length < 32 || token.length > 512 || /[\r\n]/.test(options.token)) throw new Error('MONGO_BRIDGE_TOKEN must contain between 32 and 512 bytes without line breaks.');
   const server = createServer(async (request, response) => {
@@ -60,6 +62,20 @@ export function createSnapshotServer(options: { token: string; repository: Snaps
       const url = new URL(request.url ?? '/', 'http://bridge.local');
       if (url.pathname === '/healthz' && request.method === 'GET') return respond(response, 200, { status: 'ok' });
       if (!authorized(request, token)) return respond(response, 401, { error: 'unauthorized' });
+      if (url.pathname === '/state' && options.stateRepository) {
+        if (request.method === 'GET') {
+          const owner = ownerIdSchema.safeParse(url.searchParams.get('ownerId'));
+          if (!owner.success) throw new HttpError(400, 'invalid_owner');
+          return respond(response, 200, await options.stateRepository.load(owner.data));
+        }
+        if (request.method === 'PUT') {
+          const parsed = stateInputSchema.safeParse(await readJson(request));
+          if (!parsed.success) throw new HttpError(400, 'invalid_state');
+          const { ownerId, expectedRevision, state } = parsed.data;
+          const revision = await options.stateRepository.save(ownerId, expectedRevision, state);
+          return respond(response, 200, { revision });
+        }
+      }
       if (url.pathname === '/snapshots' && request.method === 'PUT') {
         const parsed = snapshotInputSchema.safeParse(await readJson(request));
         if (!parsed.success) throw new HttpError(400, 'invalid_snapshot');
@@ -83,6 +99,7 @@ export function createSnapshotServer(options: { token: string; repository: Snaps
     } catch (error) {
       if (response.headersSent || response.destroyed) return;
       if (error instanceof HttpError) return respond(response, error.status, { error: error.code });
+      if (error instanceof PersistenceError && error.code === 'revision_conflict') return respond(response, 409, { error: 'revision_conflict' });
       if (error instanceof SnapshotConflictError) return respond(response, 409, { error: 'snapshot_conflict' });
       // No driver errors, connection strings, tokens or internal stack traces
       // are returned to the caller (or printed to a public application log).
@@ -100,7 +117,7 @@ async function main(): Promise<void> {
   const { client, databaseName } = mongoClientFromEnvironment();
   const port = Number(process.env.MONGO_BRIDGE_PORT ?? '8788');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Configure MONGO_BRIDGE_PORT.');
-  const server = createSnapshotServer({ token: process.env.MONGO_BRIDGE_TOKEN ?? '', repository: createMongoRepository(client.db(databaseName)) });
+  const server = createSnapshotServer({ token: process.env.MONGO_BRIDGE_TOKEN ?? '', repository: createMongoRepository(client.db(databaseName)), stateRepository: createStateRepository(client.db(databaseName)) });
   try {
     await client.connect();
     await new Promise<void>((resolve, reject) => {
