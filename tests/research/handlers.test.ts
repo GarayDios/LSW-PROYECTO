@@ -18,6 +18,20 @@ const get = (query = 'symbol=AAPL&start=2023-11-13&end=2026-11-13') => new Reque
 const body = { symbols: ['AAPL', 'MSFT'], selectedCores: ['trend'], strategy: 'wheel', days: 30, start: '2023-11-13', end: '2026-11-13' };
 const post = (value: unknown = body, origin = 'https://terminal.test') => new Request('https://terminal.test/api/research/ranking', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 
+test('ranking validates per-company assumptions and retains their provenance without changing provider facts', async()=>{
+  const api=createResearchHandlers({environment:()=>environment,owner,history,research,now:()=>now});
+  const analysis={capital:20000,feePerContract:.65,maxSpreadPercent:30,longDays:365,dividendPercentBySymbol:{AAPL:0}};
+  const response=await api.ranking(post({...body,analysis}));
+  assert.equal(response.status,200);
+  const result=await response.json() as {snapshots:Record<string,Awaited<ReturnType<typeof fetchCompanyResearch>>>;ranked:{symbol:string;strategyAnalysis:{warnings:string[]}}[]};
+  assert.equal(result.snapshots.AAPL.fundamentals.dividendYield.value,null);
+  assert.ok(result.ranked.find(r=>r.symbol==='AAPL')!.strategyAnalysis.warnings.some(w=>w.includes('supuesto explícitamente')));
+  assert.equal((await api.ranking(post({...body,analysis:{...analysis,capital:-1}}))).status,400);
+  assert.equal((await api.ranking(post({...body,analysis:{...analysis,dividendPercentBySymbol:{AAPL:-2}}}))).status,400);
+  assert.equal((await api.ranking(post({...body,analysis:{...analysis,tuning:{coreWeights:{trend:0}}}}))).status,400);
+  assert.equal((await api.ranking(post({...body,analysis:{...analysis,tuning:{binomialSteps:1000000}}}))).status,400);
+});
+
 test('research boundary rejects anonymous and other-owner access before consulting providers', async () => {
   let calls = 0;
   for (const user of [null, { userId: 'other' }]) {

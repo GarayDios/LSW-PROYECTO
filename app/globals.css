@@ -29,3 +29,6 @@
 .sidebar .watchlists{flex-shrink:0;max-height:230px;overflow-y:auto}
 .watchlists-status{padding:8px 11px;color:#a6afb9;font-size:11px;line-height:1.5}
 .quant-lab{padding:16px 20px;color:#c9d2dd;font-size:13px;line-height:1.7}.quant-lab summary{cursor:pointer;color:#ffa468;font-weight:600}.quant-lab p{margin:10px 0}.quant-lab h3{font-size:15px;margin-top:18px}.quant-lab code{display:block;padding:12px;background:#10151b;border-radius:5px;overflow-wrap:anywhere;white-space:normal;font-size:12px}.quant-lab input{display:block;margin-top:6px;padding:8px;background:#20262e;border:1px solid #526071;border-radius:4px;color:#fff;max-width:100%}
+
+.order-provenance{max-width:360px;white-space:normal;font-size:11px;line-height:1.6;margin-top:8px}.order-provenance summary{cursor:pointer;color:#b2c2d2}.order-provenance p{margin:6px 0;overflow-wrap:anywhere;color:#9daab8}
+.analysis-advanced{padding:16px;margin:14px 0;min-width:0}.analysis-advanced>summary{cursor:pointer;font-size:13px;font-weight:600}.analysis-advanced:not([open]){border-color:var(--border,#30343b)}.ranking-status{font-size:12px;line-height:1.5;color:var(--muted-foreground,#a2a9b4)}

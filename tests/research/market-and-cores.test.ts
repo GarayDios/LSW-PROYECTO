@@ -21,7 +21,7 @@ function snapshot(): CompanyResearch {
     quality: { historicalOnly: false, missing: [], stale: [], sources: [] }, warnings: [] };
 }
 function contract(): ObservedOptionContract {
-  return { symbol: 'AAPL261218P00100000', underlyingSymbol: 'AAPL', type: 'put', expiration: '2026-12-18', style: 'american',
+  return { symbol: 'AAPL261218P00100000', underlyingSymbol: 'AAPL', multiplier: variable(100), deliverableShares: variable(100), deliverableType: 'single_equity', type: 'put', expiration: '2026-12-18', style: 'american',
     strike: variable(100), impliedVolatility: variable(.3), bid: variable(1.9), ask: variable(2.1), premium: variable(2, 'observed midpoint', 'estimated'),
     openInterest: variable(5000), delta: variable(-.25), gamma: variable(.02), theta: variable(-.04), vega: variable(.1) };
 }

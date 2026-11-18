@@ -17,7 +17,7 @@ function contract(symbol: string, time = NOW): F5Contract {
   const match = symbol.match(/(\d{6})([CP])(\d{8})$/)!;
   return { symbol, underlying: 'AAPL', type: match[2] === 'C' ? 'call' : 'put', expiry: `20${match[1].slice(0, 2)}-${match[1].slice(2, 4)}-${match[1].slice(4, 6)}`, strike: Number(match[3]) / 1000, size: 100, style: 'american', tradable: true, bid: 2, ask: 2.2, quoteTime: new Date(time).toISOString(), delta: match[2] === 'C' ? 0.45 : -0.55 };
 }
-const position = (symbol: string, quantity: number): F5Position => ({ symbol, quantity, assetClass: symbol.length > 15 ? 'us_option' : 'us_equity', marketValue: null, averagePrice: null, unrealizedPnl: null });
+const position = (symbol: string, quantity: number): F5Position => ({ symbol, quantity, assetClass: symbol.length > 15 ? 'us_option' : 'us_equity', marketValue: quantity * (symbol.length > 15 ? 210 : 180), averagePrice: null, unrealizedPnl: null });
 const wheel = (patch: Partial<F5OpenRequest> = {}): F5OpenRequest => ({ action: 'open', strategy: 'wheel', underlying: 'AAPL', quantity: 1, contracts: [put], wheelPhase: 'put', limitPrice: 2, maxCapitalUsd: 20000, ...patch });
 const pmcc = (): F5OpenRequest => ({ action: 'open', strategy: 'pmcc', underlying: 'AAPL', quantity: 1, contracts: [longCall, callHigh], limitPrice: 5, maxCapitalUsd: 20000 });
 const gamma = (): F5OpenRequest => ({ action: 'open', strategy: 'gamma', underlying: 'AAPL', quantity: 1, contracts: [call, put], limitPrice: 4.2, maxCapitalUsd: 1000 });
@@ -68,6 +68,14 @@ function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (
   };
 }
 function errorCode(result: { value: unknown }) { return (result.value as { error: { code: string } }).error.code; }
+
+test('an unpriced account position still blocks new F5 exposure', async t => {
+  const s=setup();t.after(()=>s.store.close());
+  s.setPositions([{...position('AAPL',100),marketValue:null}]);
+  const result=await s.take('POST','preview',wheel());
+  assert.equal(result.status,409);assert.equal(errorCode(result),'f5_risk_blocked');
+  assert.equal(s.sends(),0);
+});
 
 test('a Gamma equity hedge with inferred intent reconciles after restart without another order', async t => {
   const s = setup(); t.after(() => s.store.close());
@@ -247,7 +255,7 @@ test('partial canceled opens and partial closes never become fictitious complete
   const status = await s.take('GET', 'status');
   assert.equal((status.value as F5Status).operations[0].state, 'canceled');
   assert.equal((status.value as F5Status).operations[0].brokerOrder?.filled_qty, '1');
-  assert.equal(errorCode(await s.take('POST', 'preview', { action: 'close', operationId: operation.id, limitPrice: 2, maxCapitalUsd: 1000 })), 'f5_open_not_filled');
+  assert.equal(errorCode(await s.take('POST', 'preview', { action: 'close', operationId: operation.id, limitPrice: 2, maxCapitalUsd: 1000 })), 'f5_position_missing');
 });
 
 test('closing refuses expired, assigned or externally changed option positions', async t => {

@@ -33,7 +33,7 @@ function validateConfig(c: CycleConfig) {
 }
 export function defaultCycleConfig(company: Company, strategy: StrategyId, rate=.04): CycleConfig {
   const spot=round(company.price), k=(p:number)=>Math.max(5,Math.round(p/5)*5);
-  const config: CycleConfig={id:'draft',strategy,symbol:company.symbol,capital:20000,contracts:1,startDate:'2026-11-09',spot,iv:company.iv,rate,dividendYield:company.dividendYield,shortStrike:k(spot*.95),longStrike:k(spot*1.03),shortPremium:1,longPremium:1,shortDays:32,longDays:375,feePerContract:0,feePerShare:0};
+  const config: CycleConfig={id:'draft',strategy,symbol:company.symbol,capital:20000,contracts:1,startDate:new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),spot,iv:company.iv,rate,dividendYield:company.dividendYield,shortStrike:k(spot*.95),longStrike:k(spot*1.03),shortPremium:1,longPremium:1,shortDays:32,longDays:375,feePerContract:0,feePerShare:0};
   if(strategy==='pmcc'){config.shortStrike=k(spot*1.08);config.longStrike=k(spot*.68);}
   if(strategy==='gamma')config.longStrike=k(spot);
   if(strategy==='backspread')config.longStrike=Math.max(config.shortStrike+5,k(spot*1.02));

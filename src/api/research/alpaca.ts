@@ -1,7 +1,8 @@
 import { beforeCutoff, missingVariable, type ObservedOptionContract, type ResearchNews, type ResearchOptions, type ResearchVariable } from '../../features/research/model.ts';
 import { nextToken, numeric, providerFailure, record, researchJson, timestamp, validateResearchRequest, type ResearchFetch } from './http.ts';
+import { easternTime } from '../../features/research/contract-terms.ts';
 
-export type AlpacaResearchConfig = { apiKey: string; secretKey: string; optionsFeed?: 'indicative' | 'opra'; maxPages?: number };
+export type AlpacaResearchConfig = { apiKey: string; secretKey: string; optionsFeed?: 'indicative' | 'opra'; stockFeed?:'iex'|'sip';maxPages?: number };
 const DATA = 'https://data.alpaca.markets';
 const PAPER = 'https://paper-api.alpaca.markets';
 const DAY = 86_400_000;
@@ -56,8 +57,29 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
     };
     const [chain, metadata] = await Promise.all([
       loadPages(DATA, `/v1beta1/options/snapshots/${encodeURIComponent(symbol)}`, 'snapshots', { feed, limit: '1000', expiration_date_gte: expirationStart, expiration_date_lte: expirationEnd }),
-      loadPages(PAPER, '/v2/options/contracts', 'option_contracts', { underlying_symbols: symbol, status: 'active', expiration_date_gte: expirationStart, expiration_date_lte: expirationEnd, limit: '1000' }),
+      loadPages(PAPER, '/v2/options/contracts', 'option_contracts', { underlying_symbols: symbol, status: 'active', expiration_date_gte: expirationStart, expiration_date_lte: expirationEnd, limit: '1000', show_deliverables: 'true' }),
     ]);
+    // These sources enrich the horizon but never turn a trading close into an
+    // asserted exercise deadline. Failures preserve the chain with an explicit fallback.
+    let calendar: {date:string;close:string}[] = [];
+    let lateClose: boolean | null = null;
+    if (metadata.data.length) {
+      const calendarUrl=new URL('/v2/calendar',PAPER);
+      calendarUrl.searchParams.set('start',new Date(now.getTime()-7*DAY).toISOString().slice(0,10));
+      calendarUrl.searchParams.set('end',expirationEnd);
+      const extra=await Promise.allSettled([
+        researchJson(calendarUrl,headers(config),fetcher),
+        researchJson(new URL(`/v2/assets/${encodeURIComponent(symbol)}`,PAPER),headers(config),fetcher),
+      ]);
+      if(extra[0].status==='fulfilled' && Array.isArray(extra[0].value))calendar=extra[0].value.map(record).flatMap(row=>
+        typeof row.date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date) && typeof row.close==='string' && easternTime(row.date,row.close)
+          ? [{date:row.date,close:row.close}] : []).sort((a,b)=>a.date.localeCompare(b.date));
+      if(extra[1].status==='fulfilled') {
+        const asset=record(extra[1].value);
+        if(asset.symbol===symbol && Array.isArray(asset.attributes))lateClose=asset.attributes.includes('options_late_close');
+      }
+      if(!calendar.length || lateClose===null)warnings.push('Calendario o atributo de cierre tardío no verificado; el horizonte usará 16:00 ET como supuesto identificado.');
+    }
     const complete = chain.complete && metadata.complete;
     if (!complete) warnings.push(`Cadena parcial: se alcanzó el límite explícito de ${maxPages} páginas por recurso.`);
     const contracts: ObservedOptionContract[] = [];
@@ -99,8 +121,23 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
         return missing;
       };
       const iv = numeric(snap.impliedVolatility);
+      const deliverables=Array.isArray(item.deliverables)?item.deliverables.map(record):[];
+      const delivered=deliverables[0];
+      const shares=numeric(item.size),amount=numeric(delivered?.amount);
+      const singleEquity=deliverables.length===1 && delivered.type==='equity' && delivered.delayed_settlement!==true
+        && (delivered.symbol===symbol || typeof item.underlying_asset_id==='string' && delivered.asset_id===item.underlying_asset_id)
+        && shares!==null && shares>0 && amount===shares;
+      const session=calendar.filter(row=>row.date<=String(item.expiration_date)
+        && Date.parse(String(item.expiration_date))-Date.parse(row.date)<7*DAY).at(-1);
+      const close=session && lateClose!==null ? easternTime(session.date,session.close):null;
+      const valuationAt=close ? new Date(Date.parse(close)+(lateClose?15*60000:0)).toISOString():null;
       contracts.push({
         symbol: item.symbol, underlyingSymbol: symbol, type: item.type as 'call' | 'put', expiration: item.expiration_date,
+        multiplier: raw(item.multiplier,'multiplicador de prima y ejercicio',acquiredAt),
+        deliverableShares: raw(singleEquity?shares:null,'acciones entregables verificadas',acquiredAt),
+        deliverableType: singleEquity?'single_equity':deliverables.length?'unsupported':'unknown',
+        ...(valuationAt?{valuationExpiry:{at:valuationAt,availableAt:acquiredAt,
+          source:`Alpaca calendario y atributo options_late_close: ${session!.date} ${session!.close} ET${lateClose?' +15 minutos':''}; horizonte de valoración estimado, no plazo legal de ejercicio`}}:{}),
         style: item.style === 'american' || item.style === 'european' ? item.style : 'unknown',
         strike: raw(item.strike_price, 'strike contractual', acquiredAt),
         impliedVolatility: iv !== null && iv > 0 ? quoteVar(iv, 'IV implícita publicada por proveedor') : missingVariable(`Alpaca ${feed} · IV`, 'No hay IV positiva publicada para este contrato.'),

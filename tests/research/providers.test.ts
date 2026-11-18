@@ -10,7 +10,7 @@ const asOf = '2026-11-13T16:00:00.000Z';
 const now = new Date(asOf);
 const config = { apiKey: 'test-key-never-output', secretKey: 'test-secret-never-output', optionsFeed: 'indicative' as const };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-const contract = (symbol: string) => ({ symbol, underlying_symbol: 'AAPL', type: 'call', expiration_date: '2026-12-18', style: 'american', strike_price: '100', open_interest: '500', open_interest_date: '2026-11-12' });
+const contract = (symbol: string) => ({ symbol, underlying_symbol: 'AAPL', type: 'call', expiration_date: '2026-12-18', style: 'american', strike_price: '100', multiplier:'100',size:'100',deliverables:[{type:'equity',symbol:'AAPL',amount:'100',delayed_settlement:false}],open_interest: '500', open_interest_date: '2026-11-12' });
 const snapshot = () => ({ impliedVolatility: .25, latestQuote: { t: asOf, bp: 4, ap: 6 }, greeks: { delta: .5, gamma: .02, theta: -.01, vega: .1 } });
 
 test('Alpaca joins actual contracts to snapshots, follows both page tokens, labels indicative estimates', async () => {
@@ -32,6 +32,10 @@ test('Alpaca joins actual contracts to snapshots, follows both page tokens, labe
   assert.equal(result.contracts[0].impliedVolatility.kind, 'estimated');
   assert.equal(result.contracts[0].strike.kind, 'observed');
   assert.equal(result.contracts[0].premium.availableAt, asOf);
+  assert.equal(result.contracts[0].multiplier?.value,100);
+  assert.equal(result.contracts[0].deliverableType,'single_equity');
+  assert.equal(result.contracts[0].deliverableShares?.value,100);
+  assert.equal(requests.find(url=>url.pathname==='/v2/options/contracts')?.searchParams.get('show_deliverables'),'true');
 });
 
 test('a page bound is visible and a provider denial cannot trigger an undocumented feed fallback', async () => {
@@ -41,7 +45,7 @@ test('a page bound is visible and a provider denial cannot trigger an undocument
     return String(input).includes('/snapshots/') ? json({ snapshots: { first: snapshot() }, next_page_token: 'more' })
       : json({ option_contracts: [contract('first')], next_page_token: 'more' });
   }, now);
-  assert.equal(calls, 2);
+  assert.equal(calls, 4, 'chain, contract metadata, calendar and underlying attributes');
   assert.equal(bounded.complete, false);
   assert.equal(bounded.status.status, 'partial');
   assert.ok(bounded.warnings.some(text => /límite/.test(text)));
@@ -54,6 +58,36 @@ test('a page bound is visible and a provider denial cannot trigger an undocument
   assert.deepEqual(deniedFeeds, ['opra']);
   assert.equal(denied.contracts.length, 0);
   assert.ok(!JSON.stringify(denied).includes(config.secretKey));
+});
+
+test('calendar-derived horizon handles early close and weekend expiration, while size never substitutes for multiplier',async()=>{
+  const result=await fetchAlpacaOptions(config,'AAPL',asOf,async input=>{
+    const url=new URL(String(input));
+    if(url.pathname.includes('/snapshots/'))return json({snapshots:{first:snapshot()}});
+    if(url.pathname==='/v2/calendar')return json([{date:'2026-11-25',close:'16:00'},{date:'2026-11-27',close:'13:00'}]);
+    if(url.pathname==='/v2/assets/AAPL')return json({symbol:'AAPL',attributes:[]});
+    return json({option_contracts:[{...contract('first'),expiration_date:'2026-11-28',multiplier:'10',size:'15',deliverables:[{type:'equity',symbol:'AAPL',amount:'15'}]}]});
+  },now);
+  const c=result.contracts[0];
+  assert.equal(c.multiplier?.value,10);assert.equal(c.deliverableShares?.value,15);
+  assert.equal(c.valuationExpiry?.at,'2026-11-27T18:00:00.000Z');
+  assert.match(c.valuationExpiry!.source,/estimado/);
+});
+
+test('cash baskets remain unsupported and absent metadata never defaults to a standard contract',async()=>{
+  const result=await fetchAlpacaOptions(config,'AAPL',asOf,async input=>{
+    const url=new URL(String(input));
+    if(url.pathname.includes('/snapshots/'))return json({snapshots:{first:snapshot(),second:snapshot()}});
+    if(url.pathname==='/v2/calendar')return json([]);
+    if(url.pathname.includes('/v2/assets/'))return json({symbol:'AAPL',attributes:[]});
+    return json({option_contracts:[{...contract('first'),multiplier:undefined,deliverables:undefined},
+      {...contract('second'),deliverables:[{type:'equity',symbol:'AAPL',amount:'100'},{type:'cash',amount:'5'}]}]});
+  },now);
+  assert.equal(result.contracts[0].multiplier?.value,null);
+  assert.equal(result.contracts[0].deliverableType,'unknown');
+  assert.equal(result.contracts[1].deliverableType,'unsupported');
+  assert.equal(result.contracts[1].deliverableShares?.value,null);
+  assert.ok(result.warnings.some(w=>w.includes('16:00 ET')));
 });
 
 test('historical cuts never query a latest chain and stale option quotes do not produce IV inputs', async () => {

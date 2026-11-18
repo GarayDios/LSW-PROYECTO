@@ -22,6 +22,8 @@
     "trading:serve": "node --env-file=.env.trading.local services/trading-runner/server.ts",
     "broker:check": "node scripts/verify-alpaca-connection.mjs",
     "research:check": "node scripts/verify-research-connection.mjs",
+    "verify:clean": "node scripts/verify-clean-install.mjs",
+    "fred:check": "node scripts/verify-fred-connection.mjs",
     "db:check": "node scripts/verify-database-connection.mjs",
     "db:check:supabase": "node scripts/verify-selected-database.mjs supabase",
     "db:check:mongo": "node scripts/verify-selected-database.mjs mongodb"

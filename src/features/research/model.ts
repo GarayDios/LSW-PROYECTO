@@ -23,6 +23,8 @@ export type ObservedMarket = {
   symbol: string;
   bars: Candle[];
   spot: ResearchVariable;
+  lastDailyClose?:ResearchVariable;
+  spotBasis?:'daily-close'|'quote';
   /** Annualized sample standard deviation of daily log returns, NOT option IV. */
   historicalVolatility: ResearchVariable;
   momentum20: ResearchVariable;
@@ -41,6 +43,12 @@ export type ObservedOptionContract = {
   underlyingSymbol: string;
   type: OptionType;
   expiration: string;
+  /** Provider premium/exercise multiplier; size is a different field. */
+  multiplier?: ResearchVariable;
+  deliverableShares?: ResearchVariable;
+  deliverableType?: 'single_equity' | 'unsupported' | 'unknown';
+  /** Valuation horizon from trading calendar, not a legal exercise deadline. */
+  valuationExpiry?: { at: string; source: string; availableAt: string };
   style: 'american' | 'european' | 'unknown';
   strike: ResearchVariable;
   impliedVolatility: ResearchVariable;
@@ -110,6 +118,7 @@ export type CompanyResearch = {
   fundamentals: ResearchFundamentals;
   macro: ResearchMacro;
   news: ResearchNews;
+  cashDividends?:{events:{id:string;exDate:string;payableDate:string|null;amount:number;currency:'USD';availableAt:string;source:string}[];complete:boolean;status:ProviderStatus;warnings:string[]};
   quality: { historicalOnly: boolean; missing: string[]; stale: string[]; sources: ProviderStatus[] };
   warnings: string[];
 };

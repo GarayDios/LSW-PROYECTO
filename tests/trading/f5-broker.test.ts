@@ -12,7 +12,7 @@ const request: F5OrderInput = { client_order_id: 'tepic-f5-test', qty: '2', type
   { symbol: second, side: 'buy', ratio_qty: '2', position_intent: 'buy_to_open' },
 ] };
 const responseOrder = (input: F5OrderInput = request) => ({ ...input, id: 'order-id', status: 'new', filled_qty: '0', legs: input.legs?.map((leg, i) => ({ ...leg, id: 'leg-' + i, client_order_id: 'child-' + i, qty: String(Number(input.qty) * Number(leg.ratio_qty)), status: 'new', filled_qty: '0' })) });
-const metadata = (symbol: string, overrides: Record<string, unknown> = {}) => ({ symbol, underlying_symbol: 'AAPL', root_symbol: 'AAPL', type: symbol.includes('P00') ? 'put' : 'call', expiration_date: '2026-12-18', strike_price: symbol === first ? '150' : '160', size: '100', style: 'american', status: 'active', tradable: true, ...overrides });
+const metadata = (symbol: string, overrides: Record<string, unknown> = {}) => ({ symbol, underlying_symbol: 'AAPL', root_symbol: 'AAPL', type: symbol.includes('P00') ? 'put' : 'call', expiration_date: '2026-12-18', strike_price: symbol === first ? '150' : '160', size: '100',multiplier:'100',deliverables:[{type:'equity',symbol:'AAPL',amount:'100',allocation_percentage:'100',delayed_settlement:false}],style: 'american', status: 'active', tradable: true, ...overrides });
 type Call = { url: URL; init?: RequestInit; body?: F5OrderInput };
 function setup(options: { lookup?: (calls: Call[]) => Response; post?: () => Response | Promise<Response>; account?: object; contracts?: (symbol: string) => object; route?: (call: Call) => Response | undefined; now?: () => number } = {}) {
   const calls: Call[] = [];
@@ -65,7 +65,7 @@ test('F5 uses hardcoded Paper, explicit OPRA, OCC metadata and observed quote wi
 });
 
 test('F5 filters adjusted/inactive contracts and rejects wrong underlying and OCC metadata mismatch', async () => {
-  for (const overrides of [{ size: '10' }, { root_symbol: 'AAPL1' }, { style: 'european' }, { tradable: false }]) {
+  for (const overrides of [{ size: '10' },{multiplier:'10'},{deliverables:undefined}, { root_symbol: 'AAPL1' }, { style: 'european' }, { tradable: false }]) {
     const { client } = setup({ contracts: symbol => metadata(symbol, overrides) });
     await assert.rejects(client.contract(first), errorCode('broker_contract_invalid'));
   }

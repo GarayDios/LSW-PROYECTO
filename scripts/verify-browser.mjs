@@ -3,6 +3,7 @@ import {mkdir,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { optionValidationExample } from '../src/features/research/validation-example.ts';
 const mode=process.argv[2]||'flow';
 const baseURL=process.env.QA_URL||'http://127.0.0.1:5173';
 const profile=await mkdtemp(path.join(tmpdir(),'tepic-qa-'));
@@ -18,9 +19,10 @@ try{
   function send(method,params={},sessionId){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params,...(sessionId?{sessionId}:{})}));setTimeout(()=>{if(pending.has(n)){pending.delete(n);reject(Error('CDP timeout '+method));}},45000).unref();});}
   async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;}
   async function until(expression){for(let i=0;i<160;i++){if(await evaluate(`Boolean(${expression})`))return;await delay(250);}throw Error('Timed out: '+expression+' Runtime: '+JSON.stringify(errors)+' Page: '+await evaluate('document.body.innerText.slice(0,3500)'));}
+  async function reload(){const origin=await evaluate('performance.timeOrigin');await send('Page.reload');await until(`performance.timeOrigin>${origin}`);}
   async function click(text){const clicked=await evaluate(`(()=>{const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)});if(e){e.click();return true;}return false;})()`);assert(clicked,'Missing button '+text);await delay(150);}
   async function input(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('input[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Missing input '+label);await delay(100);}
-  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
+  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
   await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   if(mode==='persistence'){
     // Exercise the real UI in isolation. Only its persistence endpoint is mocked;
@@ -79,7 +81,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
   }
-  if(mode==='history'||mode==='automation'||mode==='comparison'){
+  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'){
     // A tagged provider fixture checks the real chart and controls without
     // claiming a live Alpaca connection or requiring trading credentials.
     function installHistoryQA(){
@@ -108,7 +110,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installHistoryQA.toString()})();`});
   }
-  if(mode==='automation'||mode==='comparison'){
+  if(mode==='automation'||mode==='comparison'||mode==='delivery'){
     // Every plan mutation is intercepted. This mode never reaches the real runner.
     function installAutomationQA(){
       const qa=window.__tepicAutomationQA={actions:[],paused:false,plans:[{id:'e8bdfaf4-6066-43ba-988d-a92b28013f7e',symbol:'NVDA',historyYears:3,startDate:'2026-11-09',endDate:'2026-12-11',maxOrderUsd:100,maxPositionUsd:1000,enabled:false}]};
@@ -154,18 +156,150 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
+  if(mode==='strategies'||mode==='delivery'){
+    function installStrategyQA(automatic=false){
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.pathname!=='/api/research/company')return originalFetch(input,init);
+        const symbol=url.searchParams.get('symbol'),asOf=new Date().toISOString();
+        const v=value=>({value,source:'QA: proveedor simulado',observedAt:asOf,availableAt:asOf,kind:'observed'});
+        const missing=()=>({value:null,source:'QA: ausente',observedAt:null,availableAt:null,kind:'missing'});
+        const expiration=days=>new Date(Date.now()+days*86400000).toISOString().slice(0,10);
+        const option=(type,strike,bid,ask,days=32)=>({symbol:`${symbol}-${type}-${strike}-${days}`,underlyingSymbol:symbol,multiplier:v(100),deliverableShares:v(100),deliverableType:'single_equity',type,strike:v(strike),expiration:expiration(days),style:'european',bid:v(bid),ask:v(ask),premium:v((bid+ask)/2),impliedVolatility:v(.3),openInterest:v(1000),delta:v(type==='call'&&strike===80?.9:.5),gamma:v(.02),theta:v(-.04),vega:v(.1)});
+        const status={source:'QA simulado',status:'ready',message:'Fixture de interfaz; sin conexi?n real'};
+        const research={symbol,asOf,generatedAt:asOf,
+          market:{symbol,bars:[],spot:v(100),historicalVolatility:v(.25),momentum20:v(.03),momentum60:v(.1),averageVolume20:v(1e6),averageDollarVolume20:v(1e8),maxDrawdown:v(.2),downsideVolatility:v(.2),observations:100,stale:false,warnings:[]},
+          options:{contracts:[option('put',95,2,2.2),option('call',95,8,9),option('call',105,2,2.2),option('call',100,3,3.2),option('put',100,3,3.2),option('call',80,23,24,400)],feed:'opra',complete:true,status,warnings:[]},
+          fundamentals:{cik:null,companyName:'QA',annualRevenue:missing(),annualNetIncome:missing(),assets:missing(),liabilities:missing(),cash:missing(),sharesOutstanding:missing(),netMargin:missing(),liabilitiesToAssets:missing(),dividendYield:automatic?v(.01):missing(),status,warnings:[]},
+          macro:{treasury3MonthPercent:v(4),riskFreeRate:v(.04),inflationYearOverYear:v(.02),realGdpGrowth:v(.03),status,warnings:[]},news:{articles:[],complete:true,status,warnings:[]},quality:{historicalOnly:false,missing:automatic?[]:['dividendYield'],stale:[],sources:[status]},warnings:['QA: no son datos de mercado reales']};window.__deliveryResearch=research;return Response.json({research});
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'});`});
+  }
+  if(mode==='delivery'){
+    function installDeliveryQA(){
+      const qa=window.__delivery={phase:'submitted',mutations:[],rankingRequests:[]};
+      const originalFetch=window.fetch.bind(window);
+      window.fetch=async(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+        if(url.origin!==location.origin)return originalFetch(input,init);
+        if(url.pathname==='/api/persistence')return Response.json({mode:'local'});
+        if(url.pathname==='/api/research/ranking'){
+          const body=JSON.parse(init.body);qa.rankingRequests.push(body);
+          const snapshot=window.__deliveryResearch;
+          const ready=snapshot.fundamentals.dividendYield.value!==null;
+          const analysis={strategy:body.strategy,status:ready?'available':'unavailable',missing:ready?[]:['Dividendo futuro'],warnings:['QA fixture'],legs:[],capitalRequired:9500,entryDebit:-200,maxLoss:9300,maxGain:200,contractMultiplier:100,deliverableShares:100,horizonDays:30,dataMode:ready?'estimated':'observed',financingCost:0,assignmentReserve:null,ivScenarios:[],scenarios:[],diagnostics:{totalContracts:6,eligibleContracts:6,rejected:[],blocker:null,exampleCapitalRequired:null}};
+          return Response.json({ranked:[{symbol:snapshot.symbol,score:ready?50:null,reason:'QA: datos incompletos o simulados',probabilityOfProfit:{value:null},probabilityLabel:'QA',contractSymbol:null,strategyAnalysis:analysis}],snapshots:{[snapshot.symbol]:snapshot},excluded:[],generatedAt:snapshot.asOf,cutoff:snapshot.asOf,warnings:['QA: sin datos reales']});
+        }
+        if(url.pathname==='/api/broker/account')return Response.json({account:{status:'ACTIVE',currency:'USD',buyingPower:'10000',equity:'10000',mode:'paper'}});
+        if(url.pathname==='/api/automation' && (init?.method??'GET')==='GET'){
+          const resource=url.searchParams.get('resource');
+          if(resource==='executions')return Response.json({executions:[{clientOrderId:'fixture-entry',planId:'fixture-plan',state:qa.phase,symbol:'NVDA',side:'buy',quantity:1,filledQuantity:qa.phase==='filled'?1:0,filledAveragePrice:qa.phase==='filled'?100:undefined,brokerOrderId:'fixture-order'}]});
+          if(resource==='positions')return Response.json({positions:qa.phase==='filled'?[{planId:'fixture-plan',symbol:'NVDA',quantity:1,averageEntryPrice:100,realizedPnlUsd:0,updatedAt:new Date().toISOString()}]:[]});
+        }
+        if((init?.method??'GET')!=='GET' && url.pathname!=='/api/persistence'){
+          qa.mutations.push(url.pathname);return Response.json({error:{message:'Esta prueba no autoriza acciones externas.'}},{status:409});
+        }
+        return originalFetch(input,init);
+      };
+    }
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installDeliveryQA.toString()})();`});
+  }
   await send('Page.navigate',{url:baseURL+'/'});
   if(mode==='persistence'){
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
     assert(await evaluate(`!!document.querySelector('.persistence-loading-overlay [role="status"]')`),'Loading status remains accessible outside inert terminal');
   }
-  if(mode==='quant'){
+  if(['quant','cycles','features','flow','screenshots'].includes(mode)){
     await until(`!!document.querySelector('select[aria-label="Fuente del histórico"]')`);
     await delay(3000);
     await evaluate(`(()=>{const e=document.querySelector('select[aria-label="Fuente del histórico"]');e.value='demo';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   }
-  if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.market-chart') && !document.querySelector('vite-error-overlay')`);
+  if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.chart-panel') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
+  if(mode==='delivery'){
+    await until(`!!window.__deliveryResearch && !!document.querySelector('.comparison-assumption')`);
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('4.000% anual continua')`);
+    const toggleRate = `Array.from(document.querySelectorAll('.observed-strategy-analysis label')).find(e=>e.textContent.includes('Usar una tasa continua supuesta')).querySelector('input').click()`;
+    await evaluate(toggleRate);
+    await input('Tasa continua supuesta','12');
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('12.000% anual continua')`);
+    assert(await evaluate(`document.querySelector('.research-panel').textContent.includes('Tasa manual activada')`),'Applied manual rate is identified in research');
+    assert(await evaluate(`Array.from(document.querySelectorAll('.research-variable')).some(e=>e.textContent.includes('Tasa anual continua aplicada')&&e.textContent.includes('12.00%'))`),'Research shows the applied rate');
+    await evaluate(toggleRate);
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('4.000% anual continua')`);
+    await click('Generar oportunidades');
+    await until(`document.querySelector('.ranking-status')?.textContent.includes('1 empresas evaluadas')`);
+    assert(await evaluate(`!document.querySelector('.ranking-diagnostics')`),'No manual dividend recovery panel');
+    assert(await evaluate(`!document.querySelector('.analysis-advanced').open`),'Advanced panels start collapsed');
+    await evaluate(`document.querySelector('.comparison-assumption input[type=checkbox]').click()`);
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('Mayor compatibilidad calculable:')`);
+    await click('Operar');await until(`!!document.querySelector('.ticket-dialog')`);
+    assert(await evaluate(`document.querySelector('.ticket-source').textContent.includes('QA: proveedor simulado')`),'Order displays its data source');
+    await click('Revisar operación');await until(`!!document.querySelector('.ticket-review')`);
+    await click('Confirmar simulación');await until(`!document.querySelector('.ticket-dialog')`);
+    await evaluate(`document.querySelector('.side-nav button:nth-child(3)').click()`);
+    await until(`document.querySelectorAll('.order-table tbody tr').length===1`);
+    assert(await evaluate(`document.querySelector('.order-table').textContent.includes('Investigaci\u00f3n')`),'Stored provenance remains visible');
+    await reload();await until(`document.querySelector('.side-nav button:nth-child(3) .count-badge')?.textContent==='1'`);
+    await evaluate(`document.querySelector('.side-nav button:nth-child(3)').click()`);await until(`document.querySelectorAll('.order-table tbody tr').length===1`);
+    await evaluate(`document.querySelector('.side-nav button').click()`);await until(`!!document.querySelector('.broker-panel')`);
+    await click('Consultar cuenta Paper');await until(`document.querySelector('.broker-account')?.textContent.includes('ACTIVE')`);
+    await until(`document.querySelector('.broker-events')?.textContent.includes('Enviada al bróker')`);
+    await evaluate(`window.__delivery.phase='filled'`);await click('Actualizar estado');
+    await until(`document.querySelector('.broker-panel').textContent.includes('Ejecutada')&&document.querySelector('.broker-panel').textContent.includes('1 acciones')`);
+    await evaluate(`document.querySelector('.comparison-assumption input[type=checkbox]').click()`);
+    const historicalFile=path.resolve('outputs/browser-option-history.json');await writeFile(historicalFile,JSON.stringify(optionValidationExample()));
+    const root=await send('DOM.getDocument');
+    const historyNode=await send('DOM.querySelector',{nodeId:root.root.nodeId,selector:'input[aria-label="Datos históricos de opciones"]'});
+    await send('DOM.setFileInputFiles',{nodeId:historyNode.nodeId,files:[historicalFile]});
+    await until(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Validar fuera de muestra').disabled || !!document.querySelector('[aria-label="Validación histórica de opciones"] [role=alert]')`);
+    assert(await evaluate(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Validar fuera de muestra').disabled`),await evaluate(`document.querySelector('[aria-label="Validación histórica de opciones"]').textContent`));
+    await click('Validar fuera de muestra');await until(`document.body.textContent.includes('DATOS SINTÉTICOS DE PRUEBA')`);
+    const gammaFile=path.resolve('outputs/browser-gamma-path.json');
+    const at=await evaluate('window.__deliveryResearch.asOf');
+    await writeFile(gammaFile,JSON.stringify({source:'QA: trayectoria sintética',kind:'scenario',points:[100,110,90,115,100].map((spot,i)=>({at:new Date(Date.parse(at)+i*86400000).toISOString(),spot,bid:spot-.05,ask:spot+.05}))}));
+    const gammaNode=await send('DOM.querySelector',{nodeId:root.root.nodeId,selector:'input[aria-label="Trayectoria Gamma"]'});
+    await send('DOM.setFileInputFiles',{nodeId:gammaNode.nodeId,files:[gammaFile]});
+    await until(`!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Evaluar coberturas Gamma').disabled`);
+    await evaluate(`document.querySelector('input[aria-label="Trayectoria Gamma"]').closest('details').open=true`);
+    await click('Evaluar coberturas Gamma');await until(`document.body.textContent.includes('Resultado con cobertura:')`);
+    const operationEnd=await evaluate(`document.querySelector('input[aria-label="Fecha de fin de operación"]').value`);
+    await input('Fecha de fin de operación','2020-01-01');await click('Generar oportunidades');
+    assert(await evaluate(`!!document.querySelector('.form-error')`),'Invalid operation dates are explained');
+    await input('Fecha de fin de operación',operationEnd);
+    await evaluate(`window.__tepicHistoryQA.fail=true`);await click('1A');
+    await until(`document.body.innerText.includes('Prueba: el proveedor')`);
+    assert.equal(await evaluate(`document.querySelector('select[aria-label="Fuente del histórico"]').value`),'alpaca');
+    await evaluate(`window.__tepicHistoryQA.fail=false`);await click('3A');
+    await until(`!!document.querySelector('.market-chart svg')&&!document.body.innerText.includes('Prueba: el proveedor')`);
+    await screenshot('delivery-desktop.png',1440,1000);await screenshot('delivery-mobile.png',390,844);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Delivery UI fits mobile');
+    assert.deepEqual(await evaluate('window.__delivery.mutations'),[],'No external action was submitted');
+    console.log('PASS: confirm simulation, Orders and reload; field provenance; Paper account/order-state/position UI with fixtures; historical importer; dynamic Gamma path; mobile. No real broker order.');
+  }else if(mode==='strategies'){
+    await until(`document.querySelectorAll('.observed-strategy-analysis tbody tr').length===4`);
+    assert(await evaluate(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').textContent.includes('Dividendo futuro')`),'Missing dividend remains explicit');
+    await evaluate(`document.querySelector('.comparison-assumption input[type=checkbox]').click()`);
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('Mayor compatibilidad calculable:')`);
+    assert(await evaluate(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').textContent.includes('trayectorias de cobertura')`),'Gamma probability is not fabricated');
+    assert(await evaluate(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').textContent.includes('vencimientos distintos')`),'PMCC does not borrow single-leg probability');
+    await click('Comparar sin el core de probabilidad');
+    await until(`Array.from(document.querySelectorAll('.observed-strategy-analysis tbody tr')).find(e=>e.innerText.includes('Poor Man')).innerText.includes('/100')`);
+    await evaluate(`Array.from(document.querySelectorAll('.observed-strategy-analysis tbody tr')).find(e=>e.innerText.includes('Poor Man')).querySelector('button').click()`);
+    await until(`document.querySelector('.strategy-option[aria-checked=true]').innerText.includes('Poor Man')`);
+    await evaluate(`(()=>{const form=document.querySelector('.evaluation-controls form');form.closest('details').open=true;form.elements.namedItem('weight-bsm').value='0';form.elements.namedItem('weight-risk').value='3';form.elements.namedItem('scenarioChanges').value='-50, 0, 50';form.requestSubmit();})()`);
+    await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').textContent.includes('-50%')`);
+    assert(await evaluate(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').textContent.includes('peso 3')`),'Custom core weights reach the ranking');
+    await evaluate(`document.querySelector('.observed-strategy-analysis details').open=true;document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()`);
+    await screenshot('strategy-comparison-desktop.png',1440,1100);
+    await screenshot('strategy-comparison-mobile.png',390,844);
+    assert(await evaluate(`document.documentElement.scrollWidth<=window.innerWidth+2`),'Page should not overflow on mobile');
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)')).display`),'block');
+    console.log(JSON.stringify({mode,strategies:4,explicitDividend:true,staticGammaOnly:true,pmccProbabilityMissing:true,customWeights:true,customScenarios:true,runtimeErrors:errors}));
+    assert.deepEqual(errors,[]);process.exitCode=0;
+  } else
   if(mode==='persistence'){
     const inspect=()=>evaluate('window.__tepicPersistenceQA.inspect()');
     async function changeRate(value){
@@ -198,15 +332,15 @@ try{
     await until(`!!document.querySelector('.persistence-conflict')`);
     await click('Listo');
     assert.equal((await inspect()).state.rate,.03,'The conflicting draft does not overwrite cloud data');
-    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner')).state.rate`),.07,'Conflict keeps local draft');
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner:provider:local')).state.rate`),.07,'Conflict keeps local draft');
     assert(await evaluate(`Array.from(document.querySelectorAll('.persistence-actions button')).some(button=>button.textContent==='Descargar borrador')`));
     await click('Cargar datos de la cuenta');
     await until(`!!document.querySelector('.persistence-synced')`);
     await click('Configuración');
     assert.equal(await evaluate(`document.querySelector('.modal input[type="number"]').value`),'3','Explicit reload loads the authoritative account state');
     await click('Listo');
-    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner')).state.rate`),.07,'Remote reload leaves earlier draft available');
-    await send('Page.reload');
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem('tepic-terminal-v1:user:qa-owner:provider:local')).state.rate`),.07,'Remote reload leaves earlier draft available');
+    await reload();
     await until(`!!document.querySelector('.persistence-synced')`);
     assert.equal((await inspect()).puts,4,'Reload does not import or upload records again');
     await screenshot('persistence-desktop.png',1440,1000);await screenshot('persistence-mobile.png',390,844);
@@ -354,7 +488,7 @@ try{
     console.log('PASS: seven independent core indicators, live four-strategy comparison, top companies select chart, true interval counts, weekend empty state, CSV export, generation and mobile layout.');
   }else if(mode==='cycles'){
     async function select(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`));await delay(120);}
-    await click('Simular ciclo');await until(`document.querySelector('.cycle-builder')`);
+    await click('Simular ciclo');await until(`document.querySelector('.cycle-builder')`);await input('Fecha inicial del ciclo','2026-11-09');
     await input('Capital del ciclo · USD','100');await click('Revisar ciclo');assert(await evaluate(`document.querySelector('.cycle-error')?.textContent.includes('Capital insuficiente')`));
     await input('Capital del ciclo · USD','20000');await click('Revisar ciclo');await until(`document.querySelector('.cycle-review')`);await click('Confirmar inicio del ciclo');await until(`document.querySelector('.cycle-phase-badge')?.textContent==='PUT vendida'`);
     assert(await evaluate(`document.querySelector('.cycle-metrics').textContent.includes('$20,400.00')`),'Put premium enters cash');
@@ -371,7 +505,7 @@ try{
     }
     await click('Nuevo ciclo');await select('Estrategia del ciclo','wheel');await click('Revisar ciclo');await click('Confirmar inicio del ciclo');await select('Trayectoria del escenario','down');await click('Completar escenario');await until(`document.querySelector('.cycle-result.loss')`);assert(await evaluate(`document.querySelector('.cycle-result strong').textContent.includes('-')`),'Loss is visible');
     assert.equal(await evaluate(`document.querySelectorAll('.cycle-list-item').length`),5);await screenshot('cycles-desktop.png',1440,1000);
-    await send('Page.reload');await until(`!!document.querySelector('.terminal-app[aria-busy="false"] .cycle-launch')`);await click('Simular ciclo');await until(`document.querySelectorAll('.cycle-list-item').length===5`);assert(await evaluate(`!!document.querySelector('.cycle-result.loss')`));
+    await reload();await until(`!!document.querySelector('.terminal-app[aria-busy="false"] .cycle-launch')`);await click('Simular ciclo');await until(`document.querySelectorAll('.cycle-list-item').length===5`);assert(await evaluate(`!!document.querySelector('.cycle-result.loss')`));
     await screenshot('cycles-mobile.png',390,844);assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Cycles mobile fits');
     console.log('PASS: capital guard, review, complete Wheel assignment cycle +1200, all four strategy closures, PMCC assignment, dynamic hedges, loss scenario, persistence and mobile.');
   }else{
@@ -388,7 +522,7 @@ try{
     await click('Confirmar simulación');await until(`!document.querySelector('.ticket-dialog')`);
     await evaluate(`document.querySelector('.side-nav button:nth-child(3)').click()`);await until(`!!document.querySelector('.order-table')`);
     assert.equal(await evaluate(`document.querySelectorAll('.order-table tbody tr').length`),1);
-    await send('Page.reload');await until(`document.querySelector('.side-nav button:nth-child(3) .count-badge')?.textContent==='1'`);
+    await reload();await until(`document.querySelector('.side-nav button:nth-child(3) .count-badge')?.textContent==='1'`);
     await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelectorAll('.watchlists .watchlist').length===4`);
     assert.equal(await evaluate(`document.querySelectorAll('.watchlists .watchlist').length`),4,'Generated lists persist');
     await click('Operar');await until(`!!document.querySelector('.ticket-dialog')`);await click('Vender');await click('PUT Derecho de venta');await click('Revisar operación');await click('Confirmar simulación');

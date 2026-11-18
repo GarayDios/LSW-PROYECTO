@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { createRunner, type RunnerOptions } from './runner.ts';
 import { ownerSchema, planInputSchema } from './model.ts';
 import { createAlertDispatcher, readAlertConfig, type AlertConfig } from './alerts.ts';
+import { createF5Service } from './f5-service.ts';
+import { openF5Store } from './f5-store.ts';
+import { AlpacaOptionsClient } from '../../src/api/brokers/alpaca/options.ts';
 
 const MAX_BODY = 16384;
 const switchSchema = z.object({ ownerId: ownerSchema, enabled: z.boolean() }).strict();
@@ -34,7 +37,7 @@ async function body(request: IncomingMessage): Promise<unknown> {
 }
 
 /** Internal service. The application's authenticated proxy supplies ownerId. */
-export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch }) {
+export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch; f5?: ReturnType<typeof createF5Service> }) {
   const expected = Buffer.from(options.token);
   if (expected.length < 32 || expected.length > 512 || /[\r\n]/.test(options.token)) throw new Error('Configure un token privado de entre 32 y 512 bytes.');
   const runner = createRunner(options);
@@ -61,6 +64,18 @@ export function createRunnerService(options: RunnerOptions & { token: string; al
       const header = request.headers.authorization;
       const supplied = header?.startsWith('Bearer ') ? Buffer.from(header.slice(7)) : Buffer.alloc(0);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return respond(response, 401, { error: 'unauthorized' });
+      if (url.pathname.startsWith('/f5/') && options.f5) {
+        const value = request.method === 'GET' ? null : await body(request);
+        const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+        const ownerId = owner(request.method === 'GET' ? url.searchParams.get('ownerId') : record.ownerId);
+        const { ownerId: _owner, ...payload } = record;
+        const key = 'tick:' + ownerId;
+        if (!options.store.acquireLease(key, now(), now() + 120000)) return respond(response, 409, { error: 'account_busy' });
+        try {
+          const result = await options.f5.handle(request.method ?? 'GET', url.pathname + url.search, ownerId, value === null ? undefined : payload);
+          return respond(response, result.status, result.value);
+        } finally { options.store.releaseLease(key); }
+      }
       if (request.method === 'GET') {
         const ownerId = owner(url.searchParams.get('ownerId'));
         if (url.pathname === '/status') return respond(response, 200, runner.status());
@@ -132,8 +147,11 @@ async function main(): Promise<void> {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Puerto inválido.');
   const alerts = readAlertConfig(process.env);
   const store = openRunnerStore(process.env.TRADING_RUNNER_DB || '.sites-runtime/trading-runner.sqlite');
+  const f5Store = openF5Store(process.env.TRADING_F5_DB || '.sites-runtime/trading-f5.sqlite');
+  const f5 = createF5Service({store:f5Store, broker:config ? new AlpacaOptionsClient(config,{feed:process.env.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative'}) : null,
+    ownerId, enabled:process.env.ALPACA_F5_ENABLED === 'true', reservedShares: symbol => store.listOwnedPositions(ownerId).filter(p=>p.symbol===symbol).reduce((n,p)=>n+p.quantity,0)});
   const service = createRunnerService({
-    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts,
+    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts, f5,
     token: process.env.TRADING_RUNNER_TOKEN ?? '', enabled: process.env.ALPACA_AUTOMATION_ENABLED === 'true',
     maxOrderUsd: Number(process.env.TRADING_MAX_ORDER_USD || 1000),
     ...(process.env.TRADING_MAX_DAILY_LOSS_USD ? { maxDailyLossUsd: Number(process.env.TRADING_MAX_DAILY_LOSS_USD) } : {}),
@@ -148,7 +166,7 @@ async function main(): Promise<void> {
   console.log(`Servicio de automatización Alpaca Paper disponible en el puerto ${port}.`);
   const shutdown = () => {
     service.stopLoop();
-    service.server.close(() => { store.close(); process.exit(0); });
+    service.server.close(() => { store.close(); f5Store.close(); process.exit(0); });
     service.server.closeIdleConnections();
   };
   process.once('SIGINT', shutdown);

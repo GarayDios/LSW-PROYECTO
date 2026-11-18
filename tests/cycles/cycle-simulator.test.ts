@@ -4,7 +4,7 @@ import { createCycle, advanceCycle, writeNextOption, assignShortOption, closeCyc
 import { companies } from '../../src/features/market/data.ts';
 
 const nvda = companies.find(c => c.symbol === 'NVDA')!;
-const config = (strategy: CycleConfig['strategy'], overrides: Partial<CycleConfig> = {}): CycleConfig => ({ ...defaultCycleConfig(nvda, strategy, .04), id: 'test-cycle', feePerContract: 0, feePerShare: 0, ...overrides });
+const config = (strategy: CycleConfig['strategy'], overrides: Partial<CycleConfig> = {}): CycleConfig => ({ ...defaultCycleConfig(nvda, strategy, .04), id: 'test-cycle', startDate:'2026-11-09', feePerContract: 0, feePerShare: 0, ...overrides });
 const close = (a: number, b: number) => assert.ok(Math.abs(a-b) < .06, `${a} != ${b}`);
 const conserved = (c: ReturnType<typeof createCycle>) => { const v=cycleValue(c);close(v.pnl,v.realized+v.unrealized);close(v.equity,c.cash+c.shares*c.spot+v.optionsValue); };
 

@@ -49,7 +49,19 @@ Las órdenes individuales de opciones y los ciclos siguen siendo simulaciones de
 
 Los ciclos usan un reloj simulado y capital de práctica inicial de $100,000. Los eventos al vencimiento aplican una convención mecánica de ejercicio dentro del dinero; las asignaciones anticipadas se fuerzan manualmente. No se predicen las asignaciones reales ni se calcula margen real de bróker. Las posiciones abiertas se valoran con BSM. Al completar una trayectoria de muestra se liquidan todas las exposiciones restantes; el usuario también puede avanzar paso a paso, renovar calls permitidas y cerrar antes del vencimiento. Se conservan los registros individuales anteriores.
 
-El ranking es una heurística determinista de compatibilidad, no una expectativa de rendimiento. Los núcleos activos tienen el mismo peso. Cada estrategia ajusta objetivos de volatilidad, plazo, delta y prima; la puntuación usa proxies de una sola opción, sin valorar el payoff completo multipierna. El plazo mínimo es un día. La tasa de Configuración se usa en demo; el análisis real requiere entradas con procedencia y no copia supuestos de demostración. Los fundamentales y las noticias aportan contexto; no entrenan por sí solos un predictor.
+El ranking observado es una heurística de compatibilidad con pesos configurables,
+no una expectativa de rendimiento. Analiza las piernas de cada estructura, costes,
+capital y escenarios. El modo estimado requiere elección explícita y conserva la
+procedencia de cada supuesto; no convierte HV ni primas teóricas en cotizaciones.
+PMCC incluye reserva ante asignación y financiación; Gamma tiene un replay separado
+de coberturas. La validación histórica de opciones importa cadenas y salidas con
+fecha, separa entrenamiento de prueba y no acredita capacidad predictiva sin datos.
+La demo conserva parámetros ilustrativos. Los fundamentales y noticias son contexto.
+
+Consulta [el cierre de pendientes y sus límites](docs/verificacion/cierre-pendientes.md)
+y [la guía para explicar arquitectura, fórmulas y estrategias](docs/entrega/guia-defensa.md).
+`npm run verify:clean` comprueba una instalación aislada sin secretos. Para FRED,
+agrega tu clave personal a `.env.local`, reinicia y ejecuta `npm run fred:check`.
 
 Para la puesta en marcha y los pendientes de configuración consulta [el estado de esta revisión](docs/cambios/ciclo-operativo-y-datos.md), [riesgo y ejecución](docs/integraciones/riesgo-y-ejecucion.md) y [servicio continuo y alertas](docs/integraciones/servicio-continuo.md). `npm run research:check` y `npm run db:check` comprueban las conexiones sin escribir registros. No se ha desplegado un servicio remoto.
 

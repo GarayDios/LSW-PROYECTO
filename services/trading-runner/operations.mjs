@@ -51,7 +51,7 @@ export async function verifyTradingBackup(filename) {
 /** One parent supervises one runner. No plans or broker requests originate here. */
 export async function startTradingSupervisor({ root, entry = 'services/trading-runner/server.ts', environment = process.env,
   port = Number(environment.TRADING_RUNNER_PORT || 8790), intervalMs = 30000, graceMs = 45000, failures = 3,
-  backoffMs = 1000, fetcher = fetch, log = message => console.log(message), backupSource, backupDirectory,
+  backoffMs = 1000, fetcher = fetch, log = message => console.log(message), backupSource = undefined, backupDirectory = undefined,
   backupIntervalMs = 6 * 3600000, backupKeep = 28 }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || intervalMs < 20 || failures < 1) throw Error('supervisor_settings_invalid');
   const runtime = path.resolve(root, '.sites-runtime'); await mkdir(runtime, { recursive: true });

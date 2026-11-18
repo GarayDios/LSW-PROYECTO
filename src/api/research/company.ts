@@ -5,6 +5,8 @@ import { fetchAlpacaNews, fetchAlpacaOptions, type AlpacaResearchConfig } from '
 import { fetchFredMacro, type FredResearchConfig } from './fred.ts';
 import { fetchSecFundamentals, type SecResearchConfig } from './sec.ts';
 import { validateResearchRequest, type ResearchFetch } from './http.ts';
+import { fetchMarketContext } from './market-context.ts';
+import { completeOptionInputs } from './complete-option-inputs.ts';
 
 export type CompanyResearchRequest = {
   symbol: string;
@@ -21,12 +23,20 @@ export async function fetchCompanyResearch(request: CompanyResearchRequest, fetc
   const { symbol, bars, asOf } = request;
   validateResearchRequest(symbol, asOf);
   const market = deriveObservedMarket(symbol, bars, asOf, request.historySource);
-  const [options, fundamentals, macro, news] = await Promise.all([
+  const [options, fundamentals, macro, news,context] = await Promise.all([
     fetchAlpacaOptions(request.alpaca, symbol, asOf, fetcher, now),
     fetchSecFundamentals(request.sec, symbol, asOf, fetcher),
     fetchFredMacro(request.fred, asOf, fetcher),
     fetchAlpacaNews(request.alpaca, symbol, asOf, fetcher),
+    fetchMarketContext(request.alpaca,symbol,asOf,fetcher,now),
   ]);
+  market.lastDailyClose=market.spot;market.spotBasis='daily-close';
+  if(context.spot.value!==null){market.spot=context.spot;market.spotBasis='quote';}
+  if(context.annualDividend.value!==null&&market.spot.value!==null&&market.spot.value>0){
+    fundamentals.dividendYield={...context.annualDividend,value:context.annualDividend.value/market.spot.value,
+      source:context.annualDividend.source+' / precio de la acción · rendimiento continuo estimado',
+      reason:context.annualDividend.reason+' Aproximación automática basada en pagos pasados, no dividendo futuro garantizado.'};
+  }
   const variables: [string, ResearchVariable][] = [
     ['market.spot', market.spot], ['market.historicalVolatility', market.historicalVolatility],
     ['market.momentum20', market.momentum20], ['market.momentum60', market.momentum60],
@@ -41,10 +51,12 @@ export async function fetchCompanyResearch(request: CompanyResearchRequest, fetc
   const warnings = [...market.warnings, ...options.warnings, ...fundamentals.warnings, ...macro.warnings, ...news.warnings];
   if (market.bars.length && market.bars.at(-1)!.time - market.bars[0].time < 1095 * 86_400_000) warnings.push('La muestra cargada cubre menos de tres años; el proveedor puede tener más datos fuera del rango seleccionado.');
   warnings.push('Los núcleos de selección son heurísticas explicables. Los datos de empresa y macro aportan contexto y no garantizan un pronóstico ni una rentabilidad.');
-  return {
-    symbol, asOf: new Date(asOf).toISOString(), generatedAt: now.toISOString(), market, options, fundamentals, macro, news,
+  const result:CompanyResearch = {
+    symbol, asOf: new Date(asOf).toISOString(), generatedAt: now.toISOString(), market, options, fundamentals, macro, news,cashDividends:context.dividends,
     quality: { historicalOnly: Date.parse(asOf) < now.getTime(), missing, stale: market.stale ? ['market'] : [],
-      sources: [{ source: request.historySource ?? 'Alpaca histórico diario', status: market.observations ? 'ready' : 'unavailable', message: `${market.observations} velas diarias cerradas antes del corte.` }, options.status, fundamentals.status, macro.status, news.status] },
+      sources: [{ source: request.historySource ?? 'Alpaca histórico diario', status: market.observations ? 'ready' : 'unavailable', message: `${market.observations} velas diarias cerradas antes del corte.` }, options.status, fundamentals.status, macro.status, news.status,context.dividends.status] },
     warnings: [...new Set(warnings)],
   };
+  completeOptionInputs(result);
+  return result;
 }

@@ -29,7 +29,7 @@ const orderBase = z.object({ id: identifier, client_order_id: z.string().min(1).
 const orderSchema = orderBase.extend({ legs: z.array(orderBase).max(4).nullable().optional() }).refine(order => [order, ...(order.legs ?? [])].every(item => Number(item.qty) > 0 && Number(item.filled_qty) >= 0 && Number(item.filled_qty) <= Number(item.qty)));
 type Order = z.infer<typeof orderSchema>;
 const metadata = z.object({ symbol: optionSymbol, underlying_symbol: equitySymbol, type: z.enum(['call', 'put']), expiration_date: date, strike_price: decimal,
-  size: decimal, status: z.string(), tradable: z.boolean(), style: z.string(), root_symbol: z.string().optional(), deliverables: z.array(z.unknown()).optional(),
+  size: decimal, multiplier: decimal, status: z.string(), tradable: z.boolean(), style: z.string(), root_symbol: z.string().optional(), deliverables: z.array(z.unknown()).optional(),
 }).passthrough();
 type Metadata = z.infer<typeof metadata>;
 const metadataPage = z.object({ option_contracts: z.array(metadata), next_page_token: z.string().max(2048).nullable().optional() });
@@ -95,12 +95,12 @@ export class AlpacaOptionsClient {
     if (contract.underlying_symbol !== underlying) throw invalid();
     const occ = contract.symbol.match(/(\d{6})([CP])(\d{8})$/)!;
     if (`20${occ[1].slice(0, 2)}-${occ[1].slice(2, 4)}-${occ[1].slice(4, 6)}` !== contract.expiration_date || (occ[2] === 'C' ? 'call' : 'put') !== contract.type || Number(occ[3]) / 1000 !== Number(contract.strike_price)) throw invalid();
-    // The list endpoint omits deliverables; the detail endpoint includes the
-    // ordinary 100-share physical delivery as well as adjusted/cash deliveries.
+    // Request deliverables explicitly on lists and verify them on details too.
+    // The execution service supports only verified standard 100/100 contracts.
     const ordinaryDelivery = z.object({ type: z.literal('equity'), symbol: equitySymbol, amount: decimal, allocation_percentage: decimal, delayed_settlement: z.boolean().optional() });
     const delivery = contract.deliverables?.length === 1 ? ordinaryDelivery.safeParse(contract.deliverables[0]) : null;
-    const standardDelivery = contract.deliverables === undefined || !!(delivery?.success && delivery.data.symbol === underlying && Number(delivery.data.amount) === 100 && Number(delivery.data.allocation_percentage) === 100 && delivery.data.delayed_settlement !== true);
-    return contract.status === 'active' && contract.tradable && contract.style === 'american' && Number(contract.size) === 100 && Number(contract.strike_price) > 0
+    const standardDelivery = !!(delivery?.success && delivery.data.symbol === underlying && Number(delivery.data.amount) === 100 && Number(delivery.data.allocation_percentage) === 100 && delivery.data.delayed_settlement !== true);
+    return contract.status === 'active' && contract.tradable && contract.style === 'american' && Number(contract.size) === 100 && Number(contract.multiplier) === 100 && Number(contract.strike_price) > 0
       && contract.symbol.slice(0, -15) === underlying && (!contract.root_symbol || contract.root_symbol === underlying) && standardDelivery;
   }
   private normalized(contract: Metadata, observed?: Snapshot): F5Contract {
@@ -113,7 +113,7 @@ export class AlpacaOptionsClient {
     checked(equitySymbol, underlying); if (expiry !== undefined) checked(date, expiry); await this.equity(underlying);
     const today = todayAt(this.now()), end = new Date(today + 'T12:00:00Z'); end.setUTCFullYear(end.getUTCFullYear() + 3);
     const filters: Record<string, string> = expiry ? { expiration_date: expiry } : { expiration_date_gte: today, expiration_date_lte: end.toISOString().slice(0, 10) };
-    const metadataParams = new URLSearchParams({ underlying_symbols: underlying, status: 'active', limit: '1000', ...filters });
+    const metadataParams = new URLSearchParams({ underlying_symbols: underlying, status: 'active', limit: '1000',show_deliverables:'true', ...filters });
     const found: Metadata[] = [], seen = new Set<string>(); let token: string | null | undefined, complete = true;
     for (let page = 0; page < 20; page++) {
       if (token) metadataParams.set('page_token', token);

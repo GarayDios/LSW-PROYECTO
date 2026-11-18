@@ -1,3 +1,4 @@
+import { analysisSettingsSchema } from '../features/research/analysis-settings.ts';
 import { z } from 'zod';
 import { isSimCycle } from '../features/cycles/cycle-simulator.ts';
 import type { SimCycle } from '../features/cycles/cycle-simulator.ts';
@@ -20,7 +21,7 @@ const rate = finite.min(0).max(.25);
 const configSchema = z.object({
   cores: z.array(z.enum(['bsm', 'greeks', 'probability', 'volatility', 'trend', 'liquidity', 'risk'])).min(1).max(7),
   operationStart: date, operationEnd: date, startTime: time, endTime: time,
-  historyStart: date, historyEnd: date, interval: z.enum(['5m', '15m', '1h', '1d']), rate,
+  historyStart: date, historyEnd: date, interval: z.enum(['5m', '15m', '1h', '1d']), rate, analysis: analysisSettingsSchema.optional(),
 }).strict().refine(value => value.operationStart <= value.operationEnd && value.historyStart <= value.historyEnd && value.historyEnd <= value.operationStart && value.startTime < value.endTime, 'Fechas u horario inválidos.');
 
 export const watchlistSchema = z.object({
@@ -34,7 +35,7 @@ export const watchlistSchema = z.object({
     snapshots: z.record(z.object({
       spot: finite.positive().nullable(), iv: finite.nonnegative().nullable(), score: finite.min(0).max(100).nullable(),
       probabilityOfProfit: finite.min(0).max(1).nullable(), probabilityLabel: z.string().max(1000),
-      contractSymbol: z.string().max(64).nullable(), missing: z.array(z.string().max(1000)).max(100),
+      analysisSummary: z.string().max(16000).optional(), contractSymbol: z.string().max(64).nullable(), missing: z.array(z.string().max(1000)).max(100),
       sources: z.array(z.string().max(1000)).max(100),
     }).strict()),
   }).strict().optional(),
@@ -46,6 +47,10 @@ export const paperOrderSchema: z.ZodType<PaperOrder> = z.object({
   strike: finite.positive().max(1e6), expiry: date, quantity: finite.int().min(1).max(100),
   premium: finite.min(0).max(1e6), total: finite.min(0).max(1e12), createdAt: z.string().datetime({ offset: true }),
   status: z.literal('Simulada'), operationStart: date, operationEnd: date, startTime: time, endTime: time,
+  multiplier:finite.positive().max(1e6).optional(),shares:finite.positive().max(1e6).optional(),
+  provenance:z.object({mode:z.enum(['demo','observed','estimated','manual']),asOf:z.string().datetime({offset:true}).nullable(),contractSymbol:z.string().max(100).nullable(),
+    spotSource:z.string().max(1500),volatilitySource:z.string().max(1500),rateSource:z.string().max(1500),dividendSource:z.string().max(1500),warnings:z.array(z.string().max(2000)).max(30),
+    inputs:z.object({spot:finite.positive(),strike:finite.positive(),days:finite.nonnegative(),volatility:finite.nonnegative(),rate:finite,dividendYield:finite.nonnegative().optional(),type:z.enum(['call','put'])}).strict().nullable().optional()}).strict().optional(),
 }).strict().refine(value => value.operationStart <= value.operationEnd && value.startTime < value.endTime, 'Fechas u horario inválidos.');
 
 // Cycles retain the simulator's versioned, lossless state, including legs and events.

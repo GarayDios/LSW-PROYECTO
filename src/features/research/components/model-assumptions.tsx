@@ -1,0 +1,26 @@
+"use client";
+import type { AnalysisSettings } from '../analysis-settings';
+export default function ModelAssumptions({settings,onSettings}:{settings:AnalysisSettings;onSettings:(s:AnalysisSettings)=>void}){
+  const setNumber=(key:'riskFreePercent'|'defaultDividendPercent'|'financingRatePercent'|'pmccMinLongDelta'|'ivShockPercent'|'estimatedSpreadPercent'|'estimatedCandidateLimit',value:number,min:number,max:number)=>{if(Number.isFinite(value)&&value>=min&&value<=max)onSettings({...settings,[key]:value});};
+  return <details className="evaluation-controls"><summary>Fuentes, modo estimado y riesgo de PMCC</summary>
+    <div className="comparison-settings"><label>Modo de cálculo<select aria-label="Modo del ranking" value={settings.modelMode??'observed'} onChange={e=>onSettings({...settings,modelMode:e.target.value as 'observed'|'estimated'})}><option value="observed">Contratos y precios observados</option><option value="estimated">Estimado con supuestos explícitos</option></select></label>
+      <label>Modelo de dividendos<select aria-label="Modelo de dividendos" value={settings.dividendModel??'continuous'} onChange={e=>onSettings({...settings,dividendModel:e.target.value as 'continuous'|'declared-cash'})}><option value="continuous">Rendimiento continuo, de fuente o supuesto</option><option value="declared-cash">Solo pagos discretos recibidos (aproximación)</option></select></label>
+      <label>Capital PMCC<select value={settings.pmccCapitalMode??'assignment-reserve'} onChange={e=>onSettings({...settings,pmccCapitalMode:e.target.value as 'assignment-reserve'|'debit-only'})}><option value="assignment-reserve">Débito + reserva ante asignación</option><option value="debit-only">Solo débito inicial (reserva no acreditada)</option></select></label>
+      <label>Delta mínima de la call larga<input type="number" min="0" max="1" step=".01" value={settings.pmccMinLongDelta??.81} onChange={e=>setNumber('pmccMinLongDelta',e.currentTarget.valueAsNumber,0,1)}/></label>
+      <label>Financiación anual PMCC (%)<input type="number" min="0" max="100" step=".1" value={settings.financingRatePercent??0} onChange={e=>setNumber('financingRatePercent',e.currentTarget.valueAsNumber,0,100)}/></label>
+      <label>Shock relativo de IV para PMCC (%)<input type="number" min="0" max="90" value={settings.ivShockPercent??20} onChange={e=>setNumber('ivShockPercent',e.currentTarget.valueAsNumber,0,90)}/></label>
+    </div>
+    {settings.dividendModel==='declared-cash'&&<p>Se ajusta el spot por el valor presente de los pagos recibidos del proveedor. No se suma otro dividendo continuo. La lista puede ser parcial y el modelo no publica probabilidad lognormal con esos saltos.</p>}
+    <label><input type="checkbox" checked={settings.riskFreePercent!==undefined} onChange={e=>onSettings({...settings,riskFreePercent:e.target.checked?0:undefined})}/> Usar una tasa continua supuesta para este análisis</label>
+    {settings.riskFreePercent!==undefined&&<label>Tasa continua anual supuesta (%)<input aria-label="Tasa continua supuesta" type="number" min="-20" max="100" step=".1" value={settings.riskFreePercent} onChange={e=>setNumber('riskFreePercent',e.currentTarget.valueAsNumber,-20,100)}/></label>}
+    <p>0% es un supuesto elegido, no una tasa confirmada. Para obtener la tasa automática agrega FRED_API_KEY en .env.local y reinicia la aplicación; la clave se mantiene en el servidor. <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" rel="noreferrer">Solicitar clave FRED</a>.</p>
+    {settings.modelMode==='estimated'&&<><p><strong>ESTIMADO:</strong> puede usar HV como volatilidad y reconstruir bid/ask teóricos. BSM recibe un valor neutral de 50 cuando la prima se construyó con el mismo modelo; no se presenta esa coincidencia como una oportunidad de mercado.</p>
+      <label><input type="checkbox" checked={settings.defaultDividendPercent!==undefined} onChange={e=>onSettings({...settings,defaultDividendPercent:e.target.checked?0:undefined})}/> Aplicar un dividendo supuesto a empresas sin supuesto individual</label>
+      {settings.defaultDividendPercent!==undefined&&<label>Dividendo continuo general supuesto (%)<input type="number" min="0" max="100" step=".1" value={settings.defaultDividendPercent} onChange={e=>setNumber('defaultDividendPercent',e.currentTarget.valueAsNumber,0,100)}/></label>}
+      <label>Spread teórico supuesto (%)<input type="number" min="0" max="100" step=".1" value={settings.estimatedSpreadPercent??5} onChange={e=>setNumber('estimatedSpreadPercent',e.currentTarget.valueAsNumber,0,100)}/></label>
+      <label>Límite de candidatos para reconstrucción<input type="number" min="10" max="500" step="1" value={settings.estimatedCandidateLimit??128} onChange={e=>{if(Number.isInteger(e.currentTarget.valueAsNumber))setNumber('estimatedCandidateLimit',e.currentTarget.valueAsNumber,10,500);}}/></label>
+      <p>La reconstrucción prioriza proximidad al plazo elegido, al plazo largo y al precio de la acción. El límite evita calcular árboles de toda la cadena y se informa cuando la muestra es parcial.</p>
+      <p>Sin contratos existentes o sin tasa y dividendo explícitos no se inventan entradas. Los supuestos no acreditan datos históricos ni alimentan órdenes Paper.</p>
+    </>}
+  </details>;
+}

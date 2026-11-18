@@ -163,3 +163,25 @@ test('shared model rejects malformed financial records and keeps valid defaults'
   assert.equal(terminalStateSchema.safeParse({ ...createDefaultState(), orders: [{ id: 'x', quantity: 0 }] }).success, false);
   assert.equal(terminalStateSchema.safeParse({ ...createDefaultState(), cycles: [{ version: 1 }] }).success, false);
 });
+
+test('saved analysis policies retain tuning and old policies remain readable',()=>{
+  const state=createDefaultState();
+  const config={cores:['trend'],operationStart:'2026-11-17',operationEnd:'2026-12-17',startTime:'09:30',endTime:'16:00',historyStart:'2023-11-17',historyEnd:'2026-11-17',interval:'1d',rate:.04,
+    analysis:{capital:20000,feePerContract:.65,maxSpreadPercent:30,longDays:365,dividendPercentBySymbol:{AAPL:0},tuning:{coreWeights:{trend:3},scenarioChanges:[-.5,0,.5],riskDrawdownWeight:.8}}};
+  const input={...state,lists:[{...state.lists[0],config}]};
+  const parsed=terminalStateSchema.parse(input);
+  assert.equal(parsed.lists[0].config?.analysis?.tuning?.coreWeights.trend,3);
+  assert.deepEqual(parsed.lists[0].config?.analysis?.tuning?.scenarioChanges,[-.5,0,.5]);
+  assert.equal(parsed.lists[0].config?.analysis?.tuning?.binomialSteps,100);
+  const legacy={...input,lists:[{...input.lists[0],config:{...config,analysis:{...config.analysis,tuning:undefined}}}]};
+  assert.equal(terminalStateSchema.parse(legacy).lists[0].config?.analysis?.tuning,undefined);
+});
+
+test('order provenance, model inputs and contract units survive persistence validation',()=>{
+  const state=createDefaultState();
+  const order={id:'source-order',symbol:'AAPL',side:'buy',type:'call',strike:100,expiry:'2026-12-18',quantity:1,premium:2,total:20,createdAt:'2026-11-17T16:00:00Z',status:'Simulada',operationStart:'2026-11-17',operationEnd:'2026-12-18',startTime:'09:30',endTime:'16:00',multiplier:10,shares:15,
+    provenance:{mode:'estimated',asOf:'2026-11-17T16:00:00Z',contractSymbol:null,spotSource:'quote fixture',volatilitySource:'HV assumed',rateSource:'FRED fixture',dividendSource:'explicit q=0',warnings:['scenario'],inputs:{spot:100,strike:100*10/15,days:30,volatility:.3,rate:.04,dividendYield:0,type:'call'}}};
+  const parsed=terminalStateSchema.parse({...state,orders:[order]});
+  assert.equal(parsed.orders[0].multiplier,10);assert.equal(parsed.orders[0].shares,15);assert.equal(parsed.orders[0].provenance?.inputs?.volatility,.3);
+  assert.equal(terminalStateSchema.safeParse({...state,orders:[{...order,multiplier:-1}]}).success,false);
+});

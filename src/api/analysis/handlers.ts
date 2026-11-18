@@ -1,3 +1,4 @@
+import { analysisPolicy, analysisSettingsSchema } from '../../features/research/analysis-settings.ts';
 import { z } from 'zod';
 import { readBrokerConfig, BrokerConfigError, BrokerError } from '../brokers/index.ts';
 import { fetchAlpacaHistory, historyQuerySchema, MarketDataError, symbolSchema } from '../market/alpaca-history.ts';
@@ -20,7 +21,8 @@ const rankingInput = range.extend({
   symbols: z.array(symbolSchema).min(1).max(14),
   selectedCores: z.array(z.enum(['bsm', 'greeks', 'probability', 'volatility', 'trend', 'liquidity', 'risk'])).min(1).max(7),
   strategy: z.enum(['wheel', 'pmcc', 'backspread', 'gamma']), days: z.number().int().min(1).max(3650),
-}).strict();
+  analysis: analysisSettingsSchema.optional(),
+}).strict().refine(input=>input.selectedCores.some(core=>(input.analysis?.tuning?.coreWeights?.[core]??1)>0),'Asigna peso positivo a un core seleccionado.');
 
 function publicError(error: unknown): Response {
   if (error instanceof ApiError || error instanceof BrokerConfigError || error instanceof BrokerError || error instanceof MarketDataError) {
@@ -60,7 +62,7 @@ export function createResearchHandlers(dependencies: Dependencies) {
       const history = await (dependencies.history ?? fetchAlpacaHistory)(auth.config, { symbol: input.symbol, start: input.start, end: input.end, interval: '1d' }, fetcher, now);
       const result = await (dependencies.research ?? fetchCompanyResearch)({
         symbol: input.symbol, bars: history.bars, asOf: asOf.toISOString(), historySource: `alpaca:${history.feed}`,
-        alpaca: { apiKey: auth.config.apiKey, secretKey: auth.config.secretKey, optionsFeed: auth.environment.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative' },
+        alpaca: { apiKey: auth.config.apiKey, secretKey: auth.config.secretKey, stockFeed:auth.config.dataFeed,optionsFeed: auth.environment.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative' },
         ...(auth.environment.SEC_USER_AGENT?.trim() ? { sec: { userAgent: auth.environment.SEC_USER_AGENT.trim() } } : {}),
         ...(auth.environment.FRED_API_KEY?.trim() ? { fred: { apiKey: auth.environment.FRED_API_KEY.trim() } } : {}),
       }, fetcher, new Date(now));
@@ -97,9 +99,11 @@ export function createResearchHandlers(dependencies: Dependencies) {
             catch { excluded.push({ symbol, reason: 'La fuente no devolvió un histórico válido; no se sustituyó con datos de muestra.' }); }
           }
         }));
-        const ranked = rankObservedCompanies(Object.values(snapshots), [...new Set(input.selectedCores)], input.strategy, input.days);
+        const ranked = Object.values(snapshots).flatMap(snapshot => rankObservedCompanies([snapshot], [...new Set(input.selectedCores)], input.strategy, input.days,
+          input.analysis ? analysisPolicy(input.analysis,snapshot) : {})).sort((a,b)=>(b.score??-1)-(a.score??-1)||a.symbol.localeCompare(b.symbol));
         return privateJson({ ranked, snapshots, excluded, generatedAt: new Date(now).toISOString(), cutoff: asOf.toISOString(), warnings: [
           'Puntuación heurística de compatibilidad. No es una probabilidad de ganancia.',
+          ...(input.analysis?.modelMode==='estimated'?['ESTIMADO: algunas entradas pueden usar HV y cotizaciones teóricas; las fuentes originales se conservan y esto no valida el ranking históricamente.']:[]),
           'Cada instantánea conserva su propia fecha de corte; la caché puede reutilizar datos consultados durante los últimos 60 segundos.',
           ...(excluded.length ? ['El ranking es parcial: hay empresas sin datos disponibles.'] : []),
         ] });
