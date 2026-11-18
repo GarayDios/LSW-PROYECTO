@@ -43,6 +43,11 @@ La evidencia y los pasos para repetir la prueba de navegador están en [la docum
 
 ## Alcance de la simulación
 
+El análisis actual obtiene automáticamente los dividendos históricos y estima
+su rendimiento anual; cuando falta IV publicada intenta calcularla con una
+cotización válida. Las estimaciones se identifican y los ajustes técnicos quedan
+plegados. Consulta [el flujo simplificado y su verificación](docs/cambios/datos-automaticos-y-vista-simple.md).
+
 En demostración, el ranking, la IV, los dividendos y las opciones son ilustrativos. El modo Alpaca usa velas reales y contratos/snapshots de opciones; muestra feed, cobertura, procedencia y datos faltantes. SEC y FRED aportan estados financieros y contexto macro cuando se configuran. El feed indicative usa cotizaciones modificadas y se etiqueta como estimación. Las cadenas actuales no se usan para reconstruir decisiones históricas. El panel permite consultar variables actuales explícitamente.
 
 Las órdenes individuales de opciones y los ciclos siguen siendo simulaciones del terminal. El servicio separado puede enviar compras y salidas de acciones a Alpaca Paper cuando tiene credenciales, habilitación de servidor y un plan activado. No hay envío a una cuenta de dinero real. Una orden enviada no equivale a ejecución confirmada. El código compartido excluye claves. En esta revisión se verificaron datos reales mediante consultas de lectura; las pruebas de órdenes y alertas usan respuestas simuladas.
@@ -103,6 +108,12 @@ El terminal sigue funcionando sin proyectos remotos. Para conectarlos, prepara S
 React 19, TypeScript y Vinext/Vite sobre el starter de Sites. La identidad del sitio está en `.openai/hosting.json`. El modo local no requiere secretos; la persistencia remota utiliza las variables documentadas en `.env.example`.
 
 ## Observaciones del profesor y Alpaca Paper
+
+La [revisión vigente del profesor](docs/mejoras-profesor/revision-manual-2026-11-18.md)
+añade controles de usuario, destinos de «Operar», niveles en la gráfica y órdenes
+manuales. El servicio arranca sin ejecución automática. Alpaca Paper se verificó
+en lectura; Webull tiene un adaptador de pruebas y su conexión requiere que el
+usuario obtenga acceso OpenAPI. El adaptador Webull actual opera acciones, no Wheel.
 
 El [recorrido de cada observación y su evidencia](docs/mejoras-profesor/observaciones-y-evidencia.md) permite explicar las carpetas, el histórico, las señales y la automatización. La [guía de Alpaca y del servicio](docs/integraciones/alpaca-y-automatizacion.md) describe las claves de práctica y cómo ejecutar `npm run trading:serve` con `.env.trading.local`. La automatización permanece desactivada hasta revisar y activar un plan.
 

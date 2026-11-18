@@ -20,6 +20,7 @@ export function installF5QA() {
   };
   window.__f5QA = {
     inspect: read,
+    statusFailure: null,
     complete: () => {
       const data = read();
       data.operations.filter(operation => ['submitted', 'partial', 'ambiguous'].includes(operation.state)).forEach(operation => {
@@ -38,8 +39,10 @@ export function installF5QA() {
     const response = (body, status = 200) => Response.json(body, { status, headers: { 'X-QA-Fixture': 'f5' } });
     if (method === 'GET' && url.searchParams.get('resource') === 'contracts') {
       const underlying = url.searchParams.get('underlying'), expiry = url.searchParams.get('expiry');
+      if(expiry==='2099-01-01')return response({contracts:[],complete:true,feed:'indicative'});
       return response({ contracts: [contract(underlying, expiry, 'put', 140), contract(underlying, expiry, 'call', 140), contract(underlying, expiry, 'call', 150)], complete: true, feed: 'indicative' });
     }
+    if(method==='GET'&&window.__f5QA.statusFailure)return response({error:window.__f5QA.statusFailure},window.__f5QA.statusFailure.code==='auth_required'?401:503);
     if (method === 'GET') return response({
       configured: true, enabled: true, marketOpen: true, mode: 'paper', feed: 'indicative',
       account: { status: 'ACTIVE', cash: 80000, buyingPower: 80000, optionsBuyingPower: 80000, equity: 98765.43, optionsLevel: 3, blocked: false },

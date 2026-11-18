@@ -1,3 +1,14 @@
+# Revisión vigente: órdenes manuales
+
+El arranque `npm run trading:serve` fuerza modo manual: no inicia evaluaciones
+de órdenes en segundo plano. F5 usa revisión y confirmación individual, y Webull
+dispone de un adaptador de acciones en sandbox. Consulta la
+[revisión del profesor del 18 de noviembre](../../docs/mejoras-profesor/revision-manual-2026-11-18.md).
+Las secciones siguientes de automatización se conservan como documentación de la
+librería histórica; no describen la habilitación del runtime actual.
+
+## Referencia histórica de automatización
+
 # Automatización de acciones en Alpaca Paper
 
 Este servicio Node evalúa planes cada 60 segundos aunque el navegador esté cerrado. Compra acciones completas en **Paper** y gestiona las salidas configuradas por reglas o mediante bracket GTC. Conciliación, fills, posiciones propias, controles de riesgo y alertas se conservan en SQLite. No opera dinero real, no envía las simulaciones de opciones del terminal y no vende posiciones manuales. Consulta [riesgo y ejecución](../../docs/integraciones/riesgo-y-ejecucion.md).

@@ -8,6 +8,8 @@ import { createAlertDispatcher, readAlertConfig, type AlertConfig } from './aler
 import { createF5Service } from './f5-service.ts';
 import { openF5Store } from './f5-store.ts';
 import { AlpacaOptionsClient } from '../../src/api/brokers/alpaca/options.ts';
+import { WebullClient,readWebullConfig } from '../../src/api/brokers/webull/client.ts';
+import { createWebullService } from './webull-service.ts';
 
 const MAX_BODY = 16384;
 const switchSchema = z.object({ ownerId: ownerSchema, enabled: z.boolean() }).strict();
@@ -37,10 +39,10 @@ async function body(request: IncomingMessage): Promise<unknown> {
 }
 
 /** Internal service. The application's authenticated proxy supplies ownerId. */
-export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch; f5?: ReturnType<typeof createF5Service> }) {
+export function createRunnerService(options: RunnerOptions & { token: string; alerts?: AlertConfig | null; alertFetcher?: typeof fetch; f5?: ReturnType<typeof createF5Service>; webull?:ReturnType<typeof createWebullService>; manualOnly?:boolean }) {
   const expected = Buffer.from(options.token);
   if (expected.length < 32 || expected.length > 512 || /[\r\n]/.test(options.token)) throw new Error('Configure un token privado de entre 32 y 512 bytes.');
-  const runner = createRunner(options);
+  const runner = createRunner({...options,enabled:options.manualOnly?false:options.enabled});
   const now = options.now ?? Date.now;
   const dispatchAlerts = createAlertDispatcher({ queue: options.store, ownerId: options.ownerId, config: options.alerts ?? null, fetcher: options.alertFetcher, now });
   let lastCompletedAt: number | null = null;
@@ -64,11 +66,21 @@ export function createRunnerService(options: RunnerOptions & { token: string; al
       const header = request.headers.authorization;
       const supplied = header?.startsWith('Bearer ') ? Buffer.from(header.slice(7)) : Buffer.alloc(0);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return respond(response, 401, { error: 'unauthorized' });
+      if(url.pathname.startsWith('/webull/')&&options.webull){
+        const value=request.method==='GET'?null:await body(request);
+        const record=value&&typeof value==='object'?value as Record<string,unknown>:{};
+        const user=owner(request.method==='GET'?url.searchParams.get('ownerId'):record.ownerId);
+        const {ownerId:_owner,...payload}=record;
+        const result=await options.webull.handle(request.method??'GET',url.pathname,user,value===null?undefined:payload);
+        return respond(response,result.status,result.value);
+      }
+      if(options.manualOnly&&request.method!=='GET'&&!url.pathname.startsWith('/f5/'))return respond(response,409,{error:'manual_orders_only'});
       if (url.pathname.startsWith('/f5/') && options.f5) {
         const value = request.method === 'GET' ? null : await body(request);
         const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
         const ownerId = owner(request.method === 'GET' ? url.searchParams.get('ownerId') : record.ownerId);
         const { ownerId: _owner, ...payload } = record;
+        if(options.manualOnly&&url.pathname==='/f5/control'&&['enable-plan','tick'].includes(String(payload.action)))return respond(response,409,{error:{code:'manual_orders_only',message:'Confirma cada orden manualmente.'}});
         const key = 'tick:' + ownerId;
         if (!options.store.acquireLease(key, now(), now() + 120000)) return respond(response, 409, { error: 'account_busy' });
         try {
@@ -128,6 +140,7 @@ export function createRunnerService(options: RunnerOptions & { token: string; al
   return {
     server, runner,
     startLoop() {
+      if(options.manualOnly)return;
       if (interval) return;
       lastCompletedAt = now();
       interval = setInterval(() => { void tick().catch(() => { console.error('No se pudo completar la evaluación Paper.'); }); }, 60000);
@@ -141,18 +154,20 @@ async function main(): Promise<void> {
   const [{ readBrokerConfig, AlpacaPaperClient }, { fetchAlpacaHistory }, { openRunnerStore }] = await Promise.all([
     import('../../src/api/brokers/index.ts'), import('../../src/api/market/alpaca-history.ts'), import('./store.ts'),
   ]);
-  const config = readBrokerConfig(process.env);
+  const config = process.env.ALPACA_API_KEY||process.env.ALPACA_SECRET_KEY?readBrokerConfig(process.env):null;
   const ownerId = ownerSchema.parse(process.env.BROKER_OWNER_USER_ID);
   const port = Number(process.env.TRADING_RUNNER_PORT ?? 8790);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Puerto inválido.');
   const alerts = readAlertConfig(process.env);
   const store = openRunnerStore(process.env.TRADING_RUNNER_DB || '.sites-runtime/trading-runner.sqlite');
   const f5Store = openF5Store(process.env.TRADING_F5_DB || '.sites-runtime/trading-f5.sqlite');
+  const webullConfig=readWebullConfig(process.env);
+  const webull=createWebullService({filename:process.env.TRADING_WEBULL_DB||'.sites-runtime/trading-webull.sqlite',ownerId,client:webullConfig?new WebullClient(webullConfig):null});
   const f5 = createF5Service({store:f5Store, broker:config ? new AlpacaOptionsClient(config,{feed:process.env.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative'}) : null,
     ownerId, enabled:process.env.ALPACA_F5_ENABLED === 'true', reservedShares: symbol => store.listOwnedPositions(ownerId).filter(p=>p.symbol===symbol).reduce((n,p)=>n+p.quantity,0)});
   const service = createRunnerService({
-    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts, f5,
-    token: process.env.TRADING_RUNNER_TOKEN ?? '', enabled: process.env.ALPACA_AUTOMATION_ENABLED === 'true',
+    store, ownerId, broker: config ? new AlpacaPaperClient(config) : null, alerts, f5, webull, manualOnly:true,
+    token: process.env.TRADING_RUNNER_TOKEN ?? '', enabled: false,
     maxOrderUsd: Number(process.env.TRADING_MAX_ORDER_USD || 1000),
     ...(process.env.TRADING_MAX_DAILY_LOSS_USD ? { maxDailyLossUsd: Number(process.env.TRADING_MAX_DAILY_LOSS_USD) } : {}),
     ...(process.env.TRADING_MAX_TOTAL_EXPOSURE_USD ? { maxTotalExposureUsd: Number(process.env.TRADING_MAX_TOTAL_EXPOSURE_USD) } : {}),
@@ -163,10 +178,10 @@ async function main(): Promise<void> {
   });
   await new Promise<void>((resolve, reject) => { service.server.once('error', reject); service.server.listen(port, process.env.TRADING_RUNNER_HOST || '127.0.0.1', resolve); });
   service.startLoop();
-  console.log(`Servicio de automatización Alpaca Paper disponible en el puerto ${port}.`);
+  console.log(`Servicio de brókers en modo manual disponible en el puerto ${port}.`);
   const shutdown = () => {
     service.stopLoop();
-    service.server.close(() => { store.close(); f5Store.close(); process.exit(0); });
+    service.server.close(() => { store.close(); f5Store.close(); webull.close(); process.exit(0); });
     service.server.closeIdleConnections();
   };
   process.once('SIGINT', shutdown);

@@ -9,7 +9,7 @@ export function completeOptionInputs(s:CompanyResearch):void {
   if(![spot,rate,q].every(v=>knownBy(v,s.asOf))||spot.value!<=0||q.value!<0||s.market.stale)return;
   const cutoff=Date.parse(s.asOf);
   const candidates=s.options.contracts.filter(c=>!knownBy(c.impliedVolatility,s.asOf)&&equityTerms(c,s.asOf)&&c.style!=='unknown'
-    &&[c.bid,c.ask,c.premium].every(v=>knownBy(v,s.asOf))&&c.bid.value!>=0&&c.ask.value!>c.bid.value!
+    &&[c.bid,c.ask,c.premium].every(v=>knownBy(v,s.asOf))&&c.bid.value!>=0&&c.ask.value!>=c.bid.value!
     &&c.premium.value!>0&&cutoff-Date.parse(c.premium.observedAt!)<=3600000
     &&Math.abs(Date.parse(c.premium.observedAt!)-Date.parse(spot.observedAt!))<=(s.market.spotBasis==='quote'?15*60000:4*86400000)
     &&valuationExpiry(c,s.asOf).time>cutoff);

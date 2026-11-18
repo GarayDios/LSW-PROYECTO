@@ -35,6 +35,12 @@ try {
     calendarValuationHorizons: research.options.contracts.filter(c=>c.valuationExpiry).length,
     underlyingPriceBasis:research.market.spotBasis??'daily-close',
     declaredCashDividendEvents:research.cashDividends?.events.length??0,
+    automaticInputs: {
+      annualDividendYieldPercent:research.fundamentals.dividendYield.value===null?null:research.fundamentals.dividendYield.value*100,
+      dividendKind:research.fundamentals.dividendYield.kind,
+      dividendSource:research.fundamentals.dividendYield.source,
+      derivedImpliedVolatilities:research.options.contracts.filter(c=>c.impliedVolatility.source.startsWith('IV calculada de bid/ask')).length,
+    },
     macroIntegration: { status:research.macro.status.status, rateAvailable:macro.rateAvailable, annualContinuousRatePercent:macro.rate.value===null?null:macro.rate.value*100,
       source:macro.rate.source, observedAt:macro.rate.observedAt, availableAt:macro.rate.availableAt, manualOverride:macro.manualRate,
       rateEvidenceMatches:true, valuationComplete:valuation.input!==null, valuationMissing:valuation.missing,

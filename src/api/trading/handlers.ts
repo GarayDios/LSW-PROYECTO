@@ -5,7 +5,7 @@ import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
 
 type Environment = Record<string, string | undefined>;
 type Owner = { userId: string };
-type Dependencies = { environment(): Environment; owner(): Promise<Owner | null>; fetcher?: typeof fetch; now?: () => number };
+type Dependencies = { environment(): Environment; owner(): Promise<Owner | null>; fetcher?: typeof fetch; now?: () => number; manualOnly?:boolean };
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const planSchema = z.object({
   symbol: symbolSchema, historyYears: z.union([z.literal(3), z.literal(5)]), startDate: date, endDate: date,
@@ -84,8 +84,8 @@ export function createTradingHandlers(dependencies: Dependencies) {
         const environment = dependencies.environment(), config = readBrokerConfig(environment), owner = await dependencies.owner();
         return privateJson({
           alpaca: { configured: Boolean(config), ownerAuthorized: Boolean(config && owner?.userId === config.ownerUserId), mode: 'paper' },
-          webull: { supported: false, requiresApproval: true },
-          automation: { configured: Boolean(environment.TRADING_RUNNER_URL && environment.TRADING_RUNNER_TOKEN), enabled: environment.ALPACA_AUTOMATION_ENABLED === 'true' },
+          webull: { supported: true, requiresApproval: true, mode:'sandbox', connected:false },
+          automation: { configured: Boolean(environment.TRADING_RUNNER_URL && environment.TRADING_RUNNER_TOKEN), enabled: dependencies.manualOnly===false&&environment.ALPACA_AUTOMATION_ENABLED === 'true' },
           identity: owner ? { userId: owner.userId } : null,
         });
       } catch (error) { return errorResponse(error); }
@@ -126,6 +126,7 @@ export function createTradingHandlers(dependencies: Dependencies) {
         const { environment, owner } = await authorized(), parsed = actionSchema.safeParse(await smallJson(request));
         if (!parsed.success) throw new ApiError('invalid_plan', 'Revisa las fechas, el presupuesto y el símbolo del plan.');
         const action = parsed.data;
+        if(dependencies.manualOnly!==false&&!['pause','disable'].includes(action.action))throw new ApiError('manual_orders_only','El terminal usa órdenes manuales. Cada envío requiere una revisión y confirmación individual.',409);
         if ((action.action === 'enable' || action.action === 'tick') && environment.ALPACA_AUTOMATION_ENABLED !== 'true') throw new ApiError('automation_disabled', 'La automatización de práctica está desactivada en el servidor.', 409);
         if (action.action === 'create') return await runner('/plans', owner.userId, environment, 'POST', { ...action.plan, enabled: false });
         if (action.action === 'tick') return await runner('/tick', owner.userId, environment, 'POST', {});

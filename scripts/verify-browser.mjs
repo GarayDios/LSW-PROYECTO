@@ -4,6 +4,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { optionValidationExample } from '../src/features/research/validation-example.ts';
+import { installF5QA } from './f5-browser-scenario.mjs';
+import { installWebullQA,runManualScenario } from './manual-browser-scenario.mjs';
 const mode=process.argv[2]||'flow';
 const baseURL=process.env.QA_URL||'http://127.0.0.1:5173';
 const profile=await mkdtemp(path.join(tmpdir(),'tepic-qa-'));
@@ -81,7 +83,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
   }
-  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'){
+  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'){
     // A tagged provider fixture checks the real chart and controls without
     // claiming a live Alpaca connection or requiring trading credentials.
     function installHistoryQA(){
@@ -156,12 +158,14 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
-  if(mode==='strategies'||mode==='delivery'){
+  if(mode==='strategies'||mode==='delivery'||mode==='manual'){
     function installStrategyQA(automatic=false){
+      const qa=window.__strategyQA={fail:false};
       const originalFetch=window.fetch.bind(window);
       window.fetch=async(input,init)=>{
         const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
         if(url.pathname!=='/api/research/company')return originalFetch(input,init);
+        if(qa.fail)return Response.json({error:{message:'QA: consulta de variables interrumpida.'}},{status:503});
         const symbol=url.searchParams.get('symbol'),asOf=new Date().toISOString();
         const v=value=>({value,source:'QA: proveedor simulado',observedAt:asOf,availableAt:asOf,kind:'observed'});
         const missing=()=>({value:null,source:'QA: ausente',observedAt:null,availableAt:null,kind:'missing'});
@@ -171,13 +175,13 @@ try{
         const research={symbol,asOf,generatedAt:asOf,
           market:{symbol,bars:[],spot:v(100),historicalVolatility:v(.25),momentum20:v(.03),momentum60:v(.1),averageVolume20:v(1e6),averageDollarVolume20:v(1e8),maxDrawdown:v(.2),downsideVolatility:v(.2),observations:100,stale:false,warnings:[]},
           options:{contracts:[option('put',95,2,2.2),option('call',95,8,9),option('call',105,2,2.2),option('call',100,3,3.2),option('put',100,3,3.2),option('call',80,23,24,400)],feed:'opra',complete:true,status,warnings:[]},
-          fundamentals:{cik:null,companyName:'QA',annualRevenue:missing(),annualNetIncome:missing(),assets:missing(),liabilities:missing(),cash:missing(),sharesOutstanding:missing(),netMargin:missing(),liabilitiesToAssets:missing(),dividendYield:automatic?v(.01):missing(),status,warnings:[]},
+          fundamentals:{cik:null,companyName:'QA',annualRevenue:missing(),annualNetIncome:missing(),assets:missing(),liabilities:missing(),cash:missing(),sharesOutstanding:missing(),netMargin:missing(),liabilitiesToAssets:missing(),dividendYield:automatic?{...v(.01),kind:'estimated',source:'QA: dividendos históricos consultados automáticamente'}:missing(),status,warnings:[]},
           macro:{treasury3MonthPercent:v(4),riskFreeRate:v(.04),inflationYearOverYear:v(.02),realGdpGrowth:v(.03),status,warnings:[]},news:{articles:[],complete:true,status,warnings:[]},quality:{historicalOnly:false,missing:automatic?[]:['dividendYield'],stale:[],sources:[status]},warnings:['QA: no son datos de mercado reales']};window.__deliveryResearch=research;return Response.json({research});
       };
     }
-    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'});`});
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'});`});
   }
-  if(mode==='delivery'){
+  if(mode==='delivery'||mode==='manual'){
     function installDeliveryQA(){
       const qa=window.__delivery={phase:'submitted',mutations:[],rankingRequests:[]};
       const originalFetch=window.fetch.bind(window);
@@ -206,6 +210,9 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installDeliveryQA.toString()})();`});
   }
+  if(mode==='manual'){
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installF5QA.toString()})();(${installWebullQA.toString()})();`});
+  }
   await send('Page.navigate',{url:baseURL+'/'});
   if(mode==='persistence'){
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
@@ -218,8 +225,20 @@ try{
   }
   if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.chart-panel') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
-  if(mode==='delivery'){
+  if(mode==='manual'){
+    await runManualScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='delivery'){
     await until(`!!window.__deliveryResearch && !!document.querySelector('.comparison-assumption')`);
+    assert(await evaluate(`Array.from(document.querySelectorAll('.analysis-advanced')).every(e=>!e.open)`),'Advanced panels start collapsed');
+    assert(await evaluate(`document.querySelector('.automatic-input-status').innerText.includes('1.00% anual · estimado automáticamente')`),'Automatic dividend is visible and identified without a manual input');
+    await evaluate(`(()=>{window.__strategyQA.fail=true;const select=document.querySelector('select[aria-label="Empresa del gráfico"]');select.value='AAPL';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await until(`document.querySelector('.observed-strategy-analysis [role=alert]')?.innerText.includes('consulta de variables interrumpida')`);
+    assert(await evaluate(`Array.from(document.querySelectorAll('.analysis-advanced')).every(e=>!e.open)`),'Research failure is visible with advanced panels collapsed');
+    await evaluate(`window.__strategyQA.fail=false`);await click('Reintentar consulta');
+    await until(`document.querySelector('.observed-strategy-analysis h2').innerText.includes('AAPL')&&!document.querySelector('.observed-strategy-analysis [role=alert]')`);
+    await evaluate(`(()=>{const select=document.querySelector('select[aria-label="Empresa del gráfico"]');select.value='NVDA';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await until(`document.querySelector('.observed-strategy-analysis h2').innerText.includes('NVDA')`);
+    await evaluate(`document.querySelector('.comparison-advanced').open=true`);
     await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('4.000% anual continua')`);
     const toggleRate = `Array.from(document.querySelectorAll('.observed-strategy-analysis label')).find(e=>e.textContent.includes('Usar una tasa continua supuesta')).querySelector('input').click()`;
     await evaluate(toggleRate);
@@ -229,11 +248,17 @@ try{
     assert(await evaluate(`Array.from(document.querySelectorAll('.research-variable')).some(e=>e.textContent.includes('Tasa anual continua aplicada')&&e.textContent.includes('12.00%'))`),'Research shows the applied rate');
     await evaluate(toggleRate);
     await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('4.000% anual continua')`);
+    await evaluate(`document.querySelector('.comparison-advanced').open=false;window.__deliveryResearch.fundamentals.dividendYield.value=null`);
+    await click('Generar oportunidades');
+    await until(`document.querySelector('.ranking-status')?.textContent.includes('0 empresas evaluadas')`);
+    assert(await evaluate(`!document.querySelector('.ranking-pending').open&&document.querySelector('.ranking-pending').textContent.includes('Dividendo futuro')`),'Missing data remains accessible in one collapsed detail');
+    assert(await evaluate(`!document.querySelector('.ranking-pending input')`),'Pending results never demand a manual dividend');
+    await evaluate(`window.__deliveryResearch.fundamentals.dividendYield.value=.01`);
     await click('Generar oportunidades');
     await until(`document.querySelector('.ranking-status')?.textContent.includes('1 empresas evaluadas')`);
+    assert(await evaluate(`!document.querySelector('.ranking-pending')`),'Resolved missing data clears the pending detail');
     assert(await evaluate(`!document.querySelector('.ranking-diagnostics')`),'No manual dividend recovery panel');
     assert(await evaluate(`!document.querySelector('.analysis-advanced').open`),'Advanced panels start collapsed');
-    await evaluate(`document.querySelector('.comparison-assumption input[type=checkbox]').click()`);
     await until(`document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').innerText.includes('Mayor compatibilidad calculable:')`);
     await click('Operar');await until(`!!document.querySelector('.ticket-dialog')`);
     assert(await evaluate(`document.querySelector('.ticket-source').textContent.includes('QA: proveedor simulado')`),'Order displays its data source');
@@ -249,7 +274,7 @@ try{
     await until(`document.querySelector('.broker-events')?.textContent.includes('Enviada al bróker')`);
     await evaluate(`window.__delivery.phase='filled'`);await click('Actualizar estado');
     await until(`document.querySelector('.broker-panel').textContent.includes('Ejecutada')&&document.querySelector('.broker-panel').textContent.includes('1 acciones')`);
-    await evaluate(`document.querySelector('.comparison-assumption input[type=checkbox]').click()`);
+    await evaluate(`Array.from(document.querySelectorAll('.analysis-advanced')).find(e=>e.querySelector('.research-panel')).open=true`);
     const historicalFile=path.resolve('outputs/browser-option-history.json');await writeFile(historicalFile,JSON.stringify(optionValidationExample()));
     const root=await send('DOM.getDocument');
     const historyNode=await send('DOM.querySelector',{nodeId:root.root.nodeId,selector:'input[aria-label="Datos históricos de opciones"]'});

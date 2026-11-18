@@ -7,6 +7,10 @@ recorrer simulaciones. Cada resultado distingue fuente externa, cálculo, supues
 y dato faltante. Una puntuación de compatibilidad no equivale a rendimiento esperado.
 Las órdenes del laboratorio y los ciclos son distintos del servicio Alpaca Paper.
 
+Para explicar Wheel función por función, consultar el [recorrido de código,
+origen de datos y fórmulas](the-wheel-codigo-y-formulas.md), con un ejemplo
+ejecutable mediante `node scripts/explain-wheel.ts`.
+
 ## Arquitectura y recorrido de datos
 
 ```mermaid

@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { readExecutionProfile } from './execution-profile.mjs';
+import { readLocalEnvironment,localBrokerPort,isListening } from './local-services.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const children = new Set();
@@ -14,7 +13,7 @@ function stop(code = 0) {
   for (const child of children) child.kill('SIGTERM');
 }
 function start(args, env, label) {
-  const child = spawn(process.execPath, args, { cwd: root, env, stdio: 'inherit' });
+  const child = spawn(process.execPath, args, { cwd: root, env, stdio: 'inherit',windowsHide:true });
   children.add(child);
   child.once('error', () => { console.error(`No se pudo iniciar ${label}.`); stop(1); });
   child.once('exit', code => {
@@ -28,23 +27,25 @@ function start(args, env, label) {
 process.once('SIGINT', () => stop());
 process.once('SIGTERM', () => stop());
 
+let frontendEnvironment=process.env;
 if (readExecutionProfile() !== 'managed-linux') {
-  const values = {};
-  // Retain compatibility with existing local setup; .env.local takes precedence.
-  for (const name of ['.env.mongo.local', '.env.local']) {
-    const path = new URL(`../${name}`, import.meta.url);
-    if (existsSync(path)) {
-      for (const [key, value] of Object.entries(parseEnv(readFileSync(path, 'utf8')))) {
-        if (value.trim()) values[key] = value;
-      }
-    }
-  }
-  const env = { ...values, ...process.env };
+  const env=readLocalEnvironment(root,['.env.mongo.local','.env.local']);
+  frontendEnvironment=env;
   if (env.MONGODB_URI && env.MONGO_BRIDGE_TOKEN) {
-    console.log('Iniciando interfaz y conexión MongoDB. Ctrl+C detiene ambos.');
-    start(['services/mongo-api/server.ts'], env, 'El servicio MongoDB');
+    const port=Number(env.MONGO_BRIDGE_PORT||8788);
+    if(await isListening(port))console.log('Reutilizando el servicio MongoDB local.');
+    else start(['services/mongo-api/server.ts'], env, 'El servicio MongoDB');
   } else {
     console.log('MongoDB sin configurar: se inicia la interfaz. Configura MONGODB_URI y MONGO_BRIDGE_TOKEN para iniciarlos juntos.');
   }
+  const broker=localBrokerPort(env);
+  if(broker){
+    const serviceEnvironment=readLocalEnvironment(root,['.env.local','.env.trading.local']);
+    if(await isListening(broker.port,broker.host))console.log('Reutilizando el servicio local de brókers.');
+    else if(serviceEnvironment.BROKER_OWNER_USER_ID&&serviceEnvironment.TRADING_RUNNER_TOKEN===env.TRADING_RUNNER_TOKEN){
+      console.log('Iniciando el servicio de brókers en modo manual.');
+      start(['services/trading-runner/server.ts'],{...serviceEnvironment,TRADING_RUNNER_PORT:String(broker.port),TRADING_RUNNER_HOST:broker.host},'El servicio de brókers');
+    }else console.log('Revisa el propietario y el token compartido del servicio de brókers.');
+  }
 }
-start(['scripts/run-framework.mjs', 'dev', ...process.argv.slice(2)], process.env, 'La interfaz');
+start(['scripts/run-framework.mjs', 'dev', ...process.argv.slice(2)], frontendEnvironment, 'La interfaz');

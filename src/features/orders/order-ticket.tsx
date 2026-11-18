@@ -39,6 +39,7 @@ type Props = {
   context?:OrderContext;
   onClose: () => void;
   onSubmit: (order: PaperOrder) => void;
+  onBroker?: (broker:'alpaca'|'webull')=>void;
 };
 
 const usd = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
@@ -54,7 +55,7 @@ const displayDate = (date: string) => {
   return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(parsed) : date;
 };
 
-export default function OrderTicket({ company, operationStart, operationEnd, startTime, endTime, rate, context,onClose, onSubmit }: Props) {
+export default function OrderTicket({ company, operationStart, operationEnd, startTime, endTime, rate, context,onClose, onSubmit,onBroker }: Props) {
   const titleId = useId();
   const errorId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -156,6 +157,7 @@ export default function OrderTicket({ company, operationStart, operationEnd, sta
           <button type="button" className="ticket-icon" aria-label="Cerrar operación" onClick={onClose}><X size={19} /></button>
         </header>
         <div className="ticket-asset"><div className="ticket-symbol" style={{ color: company.color }}>{company.initials}</div><div><strong>{company.symbol}</strong><span>{company.name}</span></div><div className="ticket-asset-price"><strong>{sourceSpot===null?'—':usd(sourceSpot)}</strong><span>{context?context.spot.source:'Subyacente · dato simulado'}</span></div></div>
+        {onBroker&&<nav className="manual-destinations" aria-label="Destino de la operación"><span className="demo-pill">Simulación local</span><button type="button" className="secondary-button" onClick={()=>onBroker('alpaca')}>Operar en Alpaca Paper</button><button type="button" className="secondary-button" onClick={()=>onBroker('webull')}>Operar en Webull pruebas</button></nav>}
         <form onSubmit={submit} noValidate>
           <div className="ticket-source"><strong>{context?context.mode==='estimated'?'ESCENARIO ESTIMADO':'ENTRADAS DE INVESTIGACIÓN · SIMULACIÓN LOCAL':'DEMOSTRACIÓN · DATOS DE MUESTRA'}</strong><p>Precio: {context?.spot.source??'Muestra fija'}. Volatilidad: {context?.volatility.source??'IV de muestra'}. Tasa: {context?.rate.source??'Manual demo'}. Dividendo: {context?.dividendYield.source??'Muestra'}.</p>{context?.contract&&<p>Contrato base: {context.contract.symbol}. Editar sus condiciones crea un escenario; la prima sigue siendo editable.</p>}{!model&&<p>No hay valoración BSM completa. Puedes guardar una intención manual con strike y prima, identificada sin griegas ni probabilidad.</p>}</div>
           {review ? (

@@ -7,8 +7,9 @@ import type { F5Account, F5AutomationPlan, F5BrokerOrder, F5Contract, F5Control,
 import type { F5Store } from './f5-store.ts';
 import { executed, f5Residual, parsePlan, riskSettingsSchema } from './f5-model.ts';
 import { enforceF5Risk, measureF5Risk } from './f5-risk.ts';
+import { buildF5Report } from './f5-report.ts';
 
-export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'>>;
+export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'|'fillActivities'|'feeActivities'|'optionActivities'>>;
 type Options = { store: F5Store; broker: F5Broker | null; ownerId: string; enabled: boolean; automationEnabled?: boolean; feed?: 'indicative' | 'opra'; now?: () => number; reservedShares?: (underlying: string) => number; onEvent?: (event: F5ControlEvent) => void };
 type Result = { status: number; value: unknown };
 const unresolved = (operation: F5Operation) => ['reserved', 'submitted', 'partial', 'ambiguous'].includes(operation.state);
@@ -280,10 +281,16 @@ export function createF5Service(options: Options) {
         if (!underlying.success || expiry !== null && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) fail('f5_invalid_query', 'Selecciona empresa y vencimiento válidos.', 400);
         return { status: 200, value: await broker().contracts(underlying.data, expiry ?? undefined) };
       }
-      if (!((method === 'GET' && url.pathname === '/f5/status') || (method === 'POST' && ['/f5/preview', '/f5/submit', '/f5/cancel'].includes(url.pathname)))) return { status: 404, value: { error: { code: 'not_found', message: 'La operación F5 no existe.' } } };
+      if (!((method === 'GET' && ['/f5/status','/f5/report'].includes(url.pathname)) || (method === 'POST' && ['/f5/preview', '/f5/submit', '/f5/cancel'].includes(url.pathname)))) return { status: 404, value: { error: { code: 'not_found', message: 'La operación F5 no existe.' } } };
       lease = store.acquire(ownerId, now());
       if (!lease) fail('f5_request_busy', 'La cuenta está procesando otra solicitud F5. Actualiza su estado antes de continuar.');
-      if (method === 'GET') return { status: 200, value: await status() };
+      if (method === 'GET') {
+        const state=await status();
+        if(url.pathname==='/f5/status')return {status:200,value:state};
+        const batches=await Promise.allSettled([broker().fillActivities?.(),broker().feeActivities?.(),broker().optionActivities?.()]);
+        const [fills,fees,activities]=batches.map(result=>result.status==='fulfilled'?result.value:undefined);
+        return {status:200,value:buildF5Report({operations:state.operations,positions:state.positions,fills,fees,activities,now})};
+      }
       if (url.pathname === '/f5/preview') {
         await reconcile();
         const operation = await prepare(parseF5Request(body)); store.insert(ownerId, operation);

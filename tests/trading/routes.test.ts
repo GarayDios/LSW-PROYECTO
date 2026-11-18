@@ -35,7 +35,7 @@ test('another visitor cannot query shared broker credentials, data or runner', a
 });
 test('runner proxy derives ownership from the request and creates disabled plans without leaking tokens', async () => {
   let forwarded: Record<string, unknown> | undefined;
-  const api = createTradingHandlers({ environment: () => environment, owner: async () => ({ userId: 'owner-a' }), fetcher: async (input, init) => {
+  const api = createTradingHandlers({ manualOnly:false, environment: () => environment, owner: async () => ({ userId: 'owner-a' }), fetcher: async (input, init) => {
     assert.equal(String(input), 'http://127.0.0.1:8790/plans');
     assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer ' + environment.TRADING_RUNNER_TOKEN);
     forwarded = JSON.parse(init?.body as string);
@@ -73,7 +73,7 @@ test('proxy restricts resources and sanitizes independent-service diagnostics', 
 
 test('risk controls and execution queries preserve server ownership and require an explicit exit policy', async () => {
   const forwarded: { url: string; body: Record<string, unknown> | null }[] = [];
-  const api = createTradingHandlers({ environment: () => environment, owner: async () => ({ userId: 'owner-a' }), fetcher: async (url, init) => {
+  const api = createTradingHandlers({ manualOnly:false, environment: () => environment, owner: async () => ({ userId: 'owner-a' }), fetcher: async (url, init) => {
     forwarded.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null });
     return Response.json({ ok: true });
   } });

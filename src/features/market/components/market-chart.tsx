@@ -30,6 +30,7 @@ type MarketChartProps = {
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
+  strategyLevels?: {value:number;label:string;color:string}[];
 };
 
 const WIDTH = 900;
@@ -64,7 +65,7 @@ export default function MarketChart(props: MarketChartProps) {
   return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, selectedCores, volatility, days, rate, dividendYield }} candles={candles} history={history}/>;
 }
 
-function HistoryChart({ candles, history, symbol, range, interval, startDate, endDate, chartType, selectedCores = [], volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null }: MarketChartProps & {candles: Candle[]; history: Candle[]}) {
+function HistoryChart({ candles, history, symbol, range, interval, startDate, endDate, chartType, selectedCores = [], volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[] }: MarketChartProps & {candles: Candle[]; history: Candle[]}) {
   const [hovered, setHovered] = useState<number | null>(null);
   const index = hovered === null ? null : Math.min(candles.length - 1, hovered);
   const current = index === null ? null : candles[index];
@@ -78,6 +79,7 @@ function HistoryChart({ candles, history, symbol, range, interval, startDate, en
   const option = modelAvailable ? blackScholes(inputs) : null;
   const metrics = option ? profitMetrics({...inputs,premium:observedOption?.premium??option.price,side:observedOption?.side??'buy'}) : null;
   const levels = [
+    ...strategyLevels.filter(level=>Number.isFinite(level.value)&&level.value>0),
     ...(enabled('bsm') && option ? [{value:strike,label:source==='demo'?'BSM · strike ATM':'Contrato observado · strike',color:'#bca2ff'}] : []),
     ...(enabled('probability') && metrics ? [{value:metrics.breakeven,label:`Equilibrio ${inputs.type} ${observedOption?.side==='sell'?'vendida':'comprada'}`,color:'#67ceee'}] : []),
     ...(enabled('volatility') && sigma !== null ? [{value:lastClose*(1+sigma),label:source==='demo'?'+1σ':'+1σ HV',color:'#d6b66c'},{value:lastClose*Math.max(.01,1-sigma),label:source==='demo'?'−1σ':'−1σ HV',color:'#d6b66c'}] : []),

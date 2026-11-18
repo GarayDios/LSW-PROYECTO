@@ -27,8 +27,11 @@ export async function fetchMarketContext(config:AlpacaResearchConfig|undefined,s
       const history=raw.map(record).filter(row=>row.symbol===symbol&&typeof row.ex_date==='string'&&row.ex_date>=start&&row.ex_date<=today);
       const splits=[...(Array.isArray(actions.forward_splits)?actions.forward_splits:[]),...(Array.isArray(actions.reverse_splits)?actions.reverse_splits:[])];
       const valid=history.every(row=>typeof row.id==='string'&&numeric(row.rate)!==null&&numeric(row.rate)!>=0&&row.foreign===false&&row.special===false&&/^\d{4}-\d{2}-\d{2}$/.test(String(row.ex_date))&&Number.isFinite(Date.parse(String(row.ex_date)))&&new Date(String(row.ex_date)).toISOString().slice(0,10)===row.ex_date&&(row.currency===undefined||row.currency==='USD'));
-      const unidentified=raw.some(item=>{const row=record(item);return row.symbol!==symbol||typeof row.ex_date!=='string';});
-      if(!body.next_page_token&&!splits.length&&valid&&!unidentified){
+      const unidentified=raw.some(item=>{const row=record(item);return row.symbol!==symbol||typeof row.ex_date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(row.ex_date)||!Number.isFinite(Date.parse(row.ex_date))||new Date(row.ex_date).toISOString().slice(0,10)!==row.ex_date;});
+      const uniqueHistory=new Map(history.map(row=>[String(row.id),row]));
+      const conflicting=history.some(row=>numeric(row.rate)!==numeric(uniqueHistory.get(String(row.id))?.rate)||row.ex_date!==uniqueHistory.get(String(row.id))?.ex_date);
+      // With no historical payments, a split cannot change the received sum of zero.
+      if(!body.next_page_token&&(!splits.length||!history.length)&&valid&&!unidentified&&!conflicting){
         const unique=new Map(history.map(row=>[String(row.id),row]));
         annualDividend={value:[...unique.values()].reduce((sum,row)=>sum+numeric(row.rate)!,0),kind:'estimated',source:'Alpaca corporate actions: suma de dividendos ordinarios por acción de los últimos 365 días',observedAt:asOf,availableAt:asOf,reason:`${unique.size} pagos recibidos. Base histórica para estimar q; no confirma pagos futuros. Una suma cero significa que no se recibieron pagos ordinarios en el período.`};
       }
@@ -40,7 +43,7 @@ export async function fetchMarketContext(config:AlpacaResearchConfig|undefined,s
         seen.add(id);
         return [{id,exDate:ex,payableDate:typeof row.payable_date==='string'?row.payable_date:null,amount,currency:'USD' as const,availableAt:now.toISOString(),source:'Alpaca corporate actions · recibido en esta consulta; no fecha histórica de anuncio'}];
       }).sort((a,b)=>a.exDate.localeCompare(b.exDate));
-      dividends={events,complete:false,status:{source:'Alpaca dividendos declarados',status:'partial',message:`${events.length} pagos futuros recibidos. No acredita todos los dividendos futuros ni fecha histórica de anuncio.`},warnings:['La API puede incorporar anuncios con retraso; una lista vacía no demuestra ausencia de dividendos. No se anualizan pagos pasados como dividendo futuro.']};
+      dividends={events,complete:false,status:{source:'Alpaca dividendos declarados',status:'partial',message:`${events.length} pagos futuros recibidos. No acredita todos los dividendos futuros ni fecha histórica de anuncio.`},warnings:['La API puede incorporar anuncios con retraso; una lista vacía no demuestra ausencia de dividendos. La estimación anual basada en pagos pasados no garantiza dividendos futuros.']};
       if(raw.some(item=>record(item).special!==false))dividends.warnings.push('Se excluyeron eventos especiales o sin clasificación verificada: pueden requerir ajustes del contrato que este modelo no aplica.');
       if(body.next_page_token)dividends.warnings.push('Eventos parciales: se alcanzó una página de 1,000 eventos; no se usan como calendario completo.');
     }

@@ -31,13 +31,16 @@ test('automatic dividend yield uses fetched historical payments, excludes future
   assert.match(result.fundamentals.dividendYield.reason!,/no dividendo futuro garantizado/);
 });
 
-test('empty successful history permits an explicit automatic zero estimate; denied, partial or split-affected history does not',async()=>{
+test('empty history permits an automatic zero estimate; denied, partial, invalid or split-affected payments do not',async()=>{
   const load=(body:unknown,status=200)=>fetchMarketContext(config,'XYZ',fixtureTime,async()=>Response.json(body,{status}),new Date(fixtureTime));
   assert.equal((await load({corporate_actions:{},next_page_token:null})).annualDividend.value,0);
   assert.equal((await load({},403)).annualDividend.value,null);
   assert.equal((await load({corporate_actions:{},next_page_token:'more'})).annualDividend.value,null);
   assert.equal((await load({corporate_actions:{cash_dividends:[payment],forward_splits:[{symbol:'XYZ'}]}})).annualDividend.value,null);
+  assert.equal((await load({corporate_actions:{cash_dividends:[],forward_splits:[{symbol:'XYZ'}]}})).annualDividend.value,0,'A split cannot alter an empty historical sum');
   assert.equal((await load({corporate_actions:{cash_dividends:[{...payment,rate:null}]}})).annualDividend.value,null);
+  assert.equal((await load({corporate_actions:{cash_dividends:[{...payment,ex_date:'2026-99-99'}]}})).annualDividend.value,null);
+  assert.equal((await load({corporate_actions:{cash_dividends:[payment,{...payment,rate:2}]}})).annualDividend.value,null);
 });
 
 test('missing European or American IV is automatically solved from real quote midpoint, without using historical volatility',()=>{
@@ -66,4 +69,15 @@ test('automatic IV keeps missing, stale or infeasible quotes unavailable',()=>{
   completeOptionInputs(s);assert.equal(c.impliedVolatility.value,null);
   c.premium=fixtureVariable(10000);c.bid=fixtureVariable(9999);c.ask=fixtureVariable(10001);
   completeOptionInputs(s);assert.equal(c.impliedVolatility.value,null);
+});
+
+test('a valid locked quote can supply automatic IV without adding a spread',()=>{
+  const s=researchFixture();s.options.contracts=[fixtureContract('put',95)];
+  const c=s.options.contracts[0];c.style='european';
+  const price=blackScholes({spot:100,strike:95,days:(valuationExpiry(c,s.asOf).time-Date.parse(s.asOf))/86400000,rate:.04,dividendYield:0,volatility:.35,type:'put'}).price;
+  c.bid=fixtureVariable(price);c.ask=fixtureVariable(price);c.premium=fixtureVariable(price);
+  c.impliedVolatility=missingVariable('provider','not published');
+  completeOptionInputs(s);
+  assert.ok(Math.abs(c.impliedVolatility.value!-.35)<1e-4);
+  assert.equal(c.bid.value,c.ask.value);
 });

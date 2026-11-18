@@ -2,3 +2,4 @@
 
 @media(max-width:650px){.observed-strategy-analysis{padding:16px}.observed-strategy-analysis button{white-space:normal}.comparison-settings{grid-template-columns:1fr}}
 .evaluation-controls label{display:flex;flex-direction:column;gap:8px;font-size:12px}.evaluation-controls input{background:transparent;color:inherit;border:1px solid #657083;border-radius:6px;padding:9px;width:100%}.evaluation-controls form{padding:10px 0}.evaluation-controls summary{font-weight:600}
+.ranking-pending{margin:10px 0;font-size:12px;line-height:1.6;color:var(--muted-foreground,#a2a9b4)}.ranking-pending summary{cursor:pointer}.ranking-pending ul{padding-left:18px;max-height:220px;overflow:auto;overflow-wrap:anywhere}.ranking-pending li+li{margin-top:8px}

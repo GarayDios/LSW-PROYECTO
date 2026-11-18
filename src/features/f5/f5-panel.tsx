@@ -5,7 +5,6 @@ import { ArrowRight, Check, Clock3, ExternalLink, Layers3, LoaderCircle, Refresh
 import { strategies } from '../strategies/catalog';
 import type { StrategyId } from '../../cores/types';
 import type { F5Contract, F5Operation, F5Request, F5Side, F5Status } from './types';
-import F5ControlPanel from './f5-control-panel';
 import F5ReportPanel from './f5-report-panel';
 import './f5-panel.css';
 
@@ -27,19 +26,25 @@ function nextFriday(years = 0) {
 }
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
-  const result = await response.json().catch(() => null) as T & { error?: { message?: string } | string };
+  const result = await response.json().catch(() => null) as T & { error?: { message?: string;code?:string } | string };
   if (!response.ok || !result) {
     const message = typeof result?.error === 'string' ? result.error : result?.error?.message;
-    throw new Error(message || 'No se pudo consultar Alpaca Paper. Actualiza el estado antes de continuar.');
+    const code=typeof result?.error==='object'?result.error?.code:undefined;
+    throw new F5RequestError(message || 'No se pudo consultar Alpaca Paper. Actualiza el estado antes de continuar.',code??'');
   }
   return result;
 }
+class F5RequestError extends Error {
+  code:string;
+  constructor(message:string,code:string){super(message);this.code=code;}
+}
 const post = <T,>(body: unknown) => api<T>('/api/f5', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export default function F5Panel({ underlying: initialUnderlying, initialStrategy, mode = 'trade' }: { underlying: string; initialStrategy: StrategyId; mode?: 'trade' | 'orders' | 'portfolio' }) {
-  const [tab, setTab] = useState<'operations' | 'control' | 'report'>('operations');
+export default function F5Panel({ underlying: initialUnderlying, initialStrategy, mode = 'trade', allowTrading=false }: { underlying: string; initialStrategy: StrategyId; mode?: 'trade' | 'orders' | 'portfolio'; allowTrading?:boolean }) {
+  const [tab, setTab] = useState<'operations' | 'report'>('operations');
   const [status, setStatus] = useState<F5Status | null>(null);
   const [statusError, setStatusError] = useState('');
+  const [statusErrorCode,setStatusErrorCode]=useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [strategy, setStrategy] = useState<StrategyId>(initialStrategy);
   const [underlying, setUnderlying] = useState(initialUnderlying);
@@ -51,6 +56,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const [chainFeed, setChainFeed] = useState<'indicative' | 'opra'>('indicative');
   const [loadedKey, setLoadedKey] = useState('');
   const [chainLoading, setChainLoading] = useState(false);
+  const [chainError,setChainError]=useState('');
   const [selection, setSelection] = useState<string[]>(['', '']);
   const [quantity, setQuantity] = useState('1');
   const [limitPrice, setLimitPrice] = useState('');
@@ -76,17 +82,19 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const busyRef = useRef(false);
   const attempted = useRef(new Set<string>());
   const mounted = useRef(true);
+  const contractsTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++statusSequence.current;
     setRefreshing(true);
     try {
       const result = await api<F5Status>('/api/f5?resource=status');
-      if (mounted.current && sequence === statusSequence.current) { setStatus(result); setStatusError(''); }
+      if (mounted.current && sequence === statusSequence.current) { setStatus(result); setStatusError(''); setStatusErrorCode(''); }
     } catch (failure) {
       if (mounted.current && sequence === statusSequence.current) {
         setStatus(null);
         setStatusError(failure instanceof Error ? failure.message : 'No se pudo actualizar la cuenta.');
+        setStatusErrorCode(failure instanceof F5RequestError?failure.code:'');
       }
     } finally { if (mounted.current && sequence === statusSequence.current) setRefreshing(false); }
   }, []);
@@ -108,29 +116,36 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const validChain = loadedKey === chainKey;
   const account = status?.account;
   const available = Boolean(status?.configured && account && !statusError);
-  const canSend = available && status?.enabled && status.marketOpen && !account?.blocked;
+  const canSend = allowTrading && available && status?.enabled && status.marketOpen && !account?.blocked;
   const operations = status?.operations.filter(operation => operation.state !== 'preview') ?? [];
   const pendingOperations = operations.filter(pending);
   const expired = !!preview && Date.parse(preview.expiresAt) <= now;
   const selectedContracts = selection.map(symbol => contracts.find(contract => contract.symbol === symbol));
 
-  function invalidate() { formSequence.current++; setPreview(null); setError(''); setNotice(''); }
+  const invalidate=useCallback(() => { formSequence.current++; setPreview(null); setError(''); setNotice(''); },[]);
   function changeStrategy(next: StrategyId) { invalidate(); setStrategy(next); setSelection(['', '']); }
-  async function loadContracts() {
-    if (busyRef.current) return;
+  const loadContracts=useCallback(async () => {
+    if(contractsTimer.current!==null){clearTimeout(contractsTimer.current);contractsTimer.current=null;}
     invalidate();
     const sequence = ++chainSequence.current;
     const requestedKey = chainKey;
-    setChainLoading(true); setSelection(['', '']); setContracts([]); setLoadedKey('');
+    setChainLoading(true); setChainError(''); setSelection(['', '']); setContracts([]); setLoadedKey('');
     try {
       const expiries = strategy === 'pmcc' ? [...new Set([expiry, longExpiry])] : [expiry];
       const responses = await Promise.all(expiries.map(value => api<{ contracts: F5Contract[]; complete: boolean; feed: 'indicative' | 'opra' }>(`/api/f5?resource=contracts&underlying=${encodeURIComponent(underlying)}&expiry=${encodeURIComponent(value)}`)));
       if (!mounted.current || sequence !== chainSequence.current) return;
       setContracts([...new Map(responses.flatMap(result => result.contracts).map(contract => [contract.symbol, contract])).values()].sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike));
       setChainComplete(responses.every(result => result.complete)); setChainFeed(responses[0]?.feed ?? 'indicative'); setLoadedKey(requestedKey);
-    } catch (failure) { if (mounted.current && sequence === chainSequence.current) setError(failure instanceof Error ? failure.message : 'No se pudieron cargar los contratos.'); }
+    } catch (failure) { if (mounted.current && sequence === chainSequence.current) setChainError(failure instanceof Error ? failure.message : 'No se pudieron cargar los contratos.'); }
     finally { if (mounted.current && sequence === chainSequence.current) setChainLoading(false); }
-  }
+  },[chainKey,strategy,expiry,longExpiry,underlying,invalidate]);
+  useEffect(()=>{
+    setLoadedKey('');setSelection(['','']);setContracts([]);setChainError('');
+    if(mode!=='trade'||tab!=='operations'||!available||!/^[A-Z][A-Z0-9.-]{0,14}$/.test(underlying)||!expiry||strategy==='pmcc'&&!longExpiry){setChainLoading(false);return;}
+    setChainLoading(true);
+    contractsTimer.current=setTimeout(()=>void loadContracts(),300);
+    return ()=>{if(contractsTimer.current!==null){clearTimeout(contractsTimer.current);contractsTimer.current=null;}chainSequence.current++;};
+  },[available,mode,tab,loadContracts,underlying,expiry,strategy,longExpiry]);
   async function prepare(request: F5Request) {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError(''); setNotice(''); setPreview(null);
@@ -160,7 +175,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     } finally { busyRef.current = false; if (mounted.current) { setBusy(false); await refresh(); } }
   }
   async function cancel(operation: F5Operation) {
-    if (busyRef.current) return;
+    if (busyRef.current||!allowTrading) return;
     busyRef.current = true; setBusy(true); setError(''); setNotice('');
     try {
       const result = await post<{ operation: F5Operation }>({ action: 'cancel', operationId: operation.id });
@@ -203,15 +218,15 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
       <div className="f5-heading"><div><span className="f5-kicker"><Layers3 size={14}/>F5 · ALPACA PAPER</span><h2>{mode === 'portfolio' ? 'Tu cuenta y posiciones de opciones' : mode === 'orders' ? 'Órdenes y ejecuciones del bróker' : 'Contratos de mercado. Órdenes en Paper.'}</h2><p>Contratos existentes y ejecuciones del entorno Paper de Alpaca, con saldo virtual.</p></div><button className="secondary-button" disabled={refreshing || busy} onClick={() => void refresh()}><RefreshCw size={14} className={refreshing ? 'spin' : ''}/>{refreshing ? 'Consultando…' : 'Actualizar estado'}</button></div>
       <div className="f5-status-row"><span className={`f5-status ${available ? 'ready' : ''}`}>{available ? 'Cuenta consultada' : refreshing && !status ? 'Conectando con el servicio' : 'Conexión pendiente'}</span>{available && <><span>{status?.marketOpen ? 'Mercado abierto' : 'Mercado cerrado'}</span><span>Opciones nivel {account?.optionsLevel}</span><span>{status?.enabled ? 'Envío habilitado' : 'Envío desactivado'}</span></>}</div>
       {statusError && <p className="f5-error" role="alert">{statusError}</p>}{status?.message && <p className="f5-muted">{status.message}</p>}
-      {!available && !refreshing && <a className="f5-external" href="/signin-with-chatgpt?return_to=%2F">Iniciar sesión con ChatGPT<ArrowRight size={13}/></a>}
+      {!available && !refreshing && statusErrorCode==='auth_required' && <a className="f5-external" href="/signin-with-chatgpt?return_to=%2F">Iniciar sesión con ChatGPT<ArrowRight size={13}/></a>}
       {!available && !refreshing && <details className="f5-setup"><summary>Cómo habilitar la conexión F5</summary><p>Inicia sesión con el propietario de la cuenta. Configura las credenciales de Alpaca Paper y el servicio de ejecución en el servidor; inicia <code>npm run trading:serve</code>. Habilita <code>ALPACA_F5_ENABLED=true</code> en el terminal y en el servicio cuando vayas a enviar órdenes.</p><p>Las claves permanecen en el servidor. Una conexión incompleta muestra este estado y no genera contratos de ejemplo.</p></details>}
       {available && !status?.enabled && <p className="f5-muted">Puedes consultar contratos y revisar una orden. El envío requiere habilitar F5 en el servidor del terminal y en el servicio.</p>}
       {account?.blocked && <p className="f5-error" role="alert">Alpaca indica que la cuenta está bloqueada para operar. Revisa su estado antes de enviar órdenes.</p>}
       {account && <div className="f5-account"><div><span>Patrimonio Paper</span><strong>{cash(account.equity)}</strong></div><div><span>Efectivo</span><strong>{cash(account.cash)}</strong></div><div><span>Poder de compra de opciones</span><strong>{cash(account.optionsBuyingPower)}</strong></div><div><span>Poder de compra de la cuenta</span><strong>{cash(account.buyingPower)}</strong></div></div>}
     </section>
 
-    <nav className="f5-workspace-tabs" aria-label="Secciones de opciones F5"><button className={tab === 'operations' ? 'active' : ''} aria-current={tab === 'operations' ? 'page' : undefined} onClick={() => setTab('operations')}>Operaciones F5</button><button className={tab === 'control' ? 'active' : ''} aria-current={tab === 'control' ? 'page' : undefined} onClick={() => setTab('control')}>Control y automatización F5</button><button className={tab === 'report' ? 'active' : ''} aria-current={tab === 'report' ? 'page' : undefined} onClick={() => setTab('report')}>Reporte F5</button></nav>
-    {tab === 'control' && <F5ControlPanel available={available} operations={operations} preparedOpening={preview?.request.action === 'open' ? preview.request : null} onChange={() => void refresh()}/>}
+    <p className="f5-muted">Órdenes manuales: {allowTrading?'habilitadas para revisar y confirmar en esta sesión':'deshabilitadas en esta sesión'}. Cada apertura, cierre, renovación o cobertura necesita una revisión y tu confirmación.</p>
+    <nav className="f5-workspace-tabs" aria-label="Secciones de opciones F5"><button className={tab === 'operations' ? 'active' : ''} aria-current={tab === 'operations' ? 'page' : undefined} onClick={() => setTab('operations')}>Operaciones F5</button><button className={tab === 'report' ? 'active' : ''} aria-current={tab === 'report' ? 'page' : undefined} onClick={() => setTab('report')}>Reporte F5</button></nav>
     {tab === 'report' && <F5ReportPanel available={available}/>}
     {tab === 'operations' && <>
     {mode === 'trade' && <section className="panel f5-builder"><div className="f5-heading"><div><span className="f5-kicker">01 · PREPARA LA ESTRATEGIA</span><h2>Elige contratos y define tu límite</h2><p>Una revisión no envía órdenes. El servidor vuelve a comprobar la cuenta, las cotizaciones y la cobertura antes del envío.</p></div></div>
@@ -222,9 +237,10 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
           {strategy === 'wheel' && <label className="f5-field">Fase de Wheel<select aria-label="Fase de Wheel" value={wheelPhase} onChange={event => { invalidate(); setWheelPhase(event.target.value as 'put' | 'call'); setSelection(['', '']); }}><option value="put">Vender PUT con efectivo</option><option value="call">Vender CALL con acciones</option></select></label>}
           <label className="f5-field">{strategy === 'pmcc' ? 'Vencimiento de la call corta' : 'Vencimiento de opciones'}<input aria-label="Vencimiento F5" type="date" value={expiry} required onChange={event => { invalidate(); setExpiry(event.target.value); }}/></label>
           {strategy === 'pmcc' && <label className="f5-field">Vencimiento de la call larga<input aria-label="Vencimiento largo F5" type="date" min={expiry} value={longExpiry} required onChange={event => { invalidate(); setLongExpiry(event.target.value); }}/></label>}
-        </div><div className="f5-chain-action"><button className="secondary-button" type="button" disabled={!available || chainLoading || !underlying || !expiry || strategy === 'pmcc' && !longExpiry} onClick={() => void loadContracts()}>{chainLoading ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>}Consultar contratos de Alpaca</button><span>{validChain ? `${contracts.length} contratos recibidos` : 'Consulta los vencimientos para seleccionar contratos existentes.'}</span></div>
+        </div><div className="f5-chain-action"><button className="secondary-button" type="button" disabled={!available || chainLoading || !underlying || !expiry || strategy === 'pmcc' && !longExpiry} onClick={() => void loadContracts()}>{chainLoading ? <LoaderCircle size={14} className="spin"/> : <RefreshCw size={14}/>}Consultar contratos de Alpaca</button><span role="status">{chainLoading?`Consultando contratos de ${underlying}…`:validChain?`${contracts.length} contratos recibidos` : available?'Los contratos se consultan automáticamente al cambiar empresa o vencimiento.':'Conecta la cuenta para consultar contratos.'}</span></div>
+        {chainError&&<p className="f5-error" role="alert">{chainError} Puedes reintentar con «Consultar contratos de Alpaca».</p>}
         {validChain && <><p className="f5-feed">{chainFeed === 'opra' ? 'Feed OPRA · cotizaciones según los permisos de tu cuenta.' : 'Feed indicative · precios derivados y modificados; no equivalen a cotizaciones OPRA ejecutables.'}</p>{!chainComplete && <p className="f5-muted">La consulta es parcial. Solo se muestran los contratos recibidos; puedes acotar el vencimiento y volver a consultar.</p>}{!contracts.length && <p className="f5-muted">Alpaca no devolvió contratos para este vencimiento. Selecciona otra fecha y consulta de nuevo.</p>}</>}
-        <div className="f5-legs-grid">{selectionLabels.map((label, index) => <div className="f5-contract-choice" key={`${strategy}-${index}`}><label className="f5-field">{label}<select aria-label={`Contrato F5 ${index + 1}`} value={validChain ? selection[index] : ''} disabled={!validChain || !available} required onChange={event => { invalidate(); setSelection(previous => previous.map((symbol, position) => position === index ? event.target.value : symbol)); }}><option value="">Selecciona un contrato</option>{choices(index).map(contract => <option value={contract.symbol} key={contract.symbol}>{contractLabel(contract)}</option>)}</select></label>{validChain && selectedContracts[index] && <div className="f5-contract-detail"><strong>{selectedContracts[index]!.symbol}</strong><span>Bid {cash(selectedContracts[index]!.bid)} · Ask {cash(selectedContracts[index]!.ask)} · Delta {selectedContracts[index]!.delta?.toFixed(3) ?? 'no disponible'}</span><small>{dateTime(selectedContracts[index]!.quoteTime)} · multiplicador {selectedContracts[index]!.size}</small></div>}</div>)}</div>
+        <div className="f5-legs-grid">{selectionLabels.map((label, index) => <div className="f5-contract-choice" key={`${strategy}-${index}`}><label className="f5-field">{label}<select aria-label={`Contrato F5 ${index + 1}`} value={validChain ? selection[index] : ''} disabled={!validChain || !available || !choices(index).length} required onChange={event => { invalidate(); setSelection(previous => previous.map((symbol, position) => position === index ? event.target.value : symbol)); }}><option value="">{chainLoading?'Consultando contratos…':validChain&&!choices(index).length?'No hay contratos para esta selección':'Selecciona un contrato'}</option>{choices(index).map(contract => <option value={contract.symbol} key={contract.symbol}>{contractLabel(contract)}</option>)}</select></label>{validChain&&<p className="f5-muted">{choices(index).length} contratos disponibles para esta selección.{!choices(index).length&&' Prueba otro vencimiento.'}</p>}{validChain && selectedContracts[index] && <div className="f5-contract-detail"><strong>{selectedContracts[index]!.symbol}</strong><span>Bid {cash(selectedContracts[index]!.bid)} · Ask {cash(selectedContracts[index]!.ask)} · Delta {selectedContracts[index]!.delta?.toFixed(3) ?? 'no disponible'}</span><small>{dateTime(selectedContracts[index]!.quoteTime)} · multiplicador {selectedContracts[index]!.size}</small></div>}</div>)}</div>
         <div className="f5-form-grid f5-order-fields"><label className="f5-field">Unidades de la estrategia<input aria-label="Unidades F5" type="number" min="1" max="100" step="1" value={quantity} required onChange={event => { invalidate(); setQuantity(event.target.value); }}/></label><label className="f5-field">{strategy === 'wheel' ? 'Prima límite por acción · USD' : 'Precio neto límite por acción · USD'}<input aria-label="Precio límite F5" type="number" step="0.01" min={strategy === 'wheel' ? '0.01' : undefined} value={limitPrice} placeholder={strategy === 'wheel' ? 'Ej. 1.25' : 'Débito positivo / crédito negativo'} required onChange={event => { invalidate(); setLimitPrice(event.target.value); }}/></label><label className="f5-field">Capital máximo autorizado · USD<input aria-label="Capital máximo F5" type="number" min="1" step="0.01" value={budget} required onChange={event => { invalidate(); setBudget(event.target.value); }}/></label></div>
         <p className="f5-strategy-note">{strategy === 'wheel' ? 'La PUT requiere efectivo por el strike × 100 × contratos. La CALL requiere acciones disponibles en la cuenta. Las asignaciones se consultan en Alpaca; la siguiente fase se revisa y confirma por separado.' : strategy === 'pmcc' ? 'La call larga vence después que la corta y tiene un strike igual o inferior. Se envían juntas en una orden multipierna. Este terminal exige además una reserva conservadora para la posible asignación de la call corta.' : strategy === 'backspread' ? 'Una call vendida de strike inferior y dos compradas de strike superior, al mismo vencimiento. El límite neto puede ser débito positivo o crédito negativo; Alpaca valida la aceptación del conjunto.' : 'Compra de un straddle: call y put con igual strike y vencimiento. Después de la ejecución puedes revisar coberturas en acciones completas. Cada ajuste requiere confirmación; las ventas se limitan a acciones disponibles y no abren posiciones cortas.'}</p>
         <div className="f5-form-footer"><span>Orden límite · vigencia del día · contratos de 100 acciones</span><button className="primary-button" type="submit" disabled={busy || !available || !validChain || pendingOperations.some(operation => operation.underlying === underlying)}>{busy ? <LoaderCircle size={14} className="spin"/> : <ShieldCheck size={14}/>}Revisar orden F5<ArrowRight size={14}/></button></div></fieldset>
@@ -242,7 +258,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
 
     <section className="panel f5-orders"><div className="f5-heading"><div><span className="f5-kicker">REGISTRO F5 DEL SERVICIO</span><h2>Órdenes, cierres y coberturas</h2><p>Las ejecuciones parciales y los estados inciertos permanecen visibles hasta su conciliación.</p></div><a className="f5-external" href="https://app.alpaca.markets/paper/dashboard/overview" target="_blank" rel="noreferrer">Abrir Alpaca Paper<ExternalLink size={13}/></a></div>{operations.length ? <div className="f5-order-list">{operations.map(operation => {
       const closeInProgress = operations.some(child => child.parentId === operation.id && child.action === 'close' && (pending(child) || child.state === 'filled'));
-      return <article className="f5-order-card" key={operation.id}><div className="f5-order-card-heading"><div><strong>{operation.underlying} · {title(operation.strategy)}</strong><span>{operation.action === 'close' ? 'Cierre de opciones' : operation.action === 'hedge' ? 'Cobertura en acciones' : 'Apertura de estrategia'} · {dateTime(operation.createdAt)}</span></div><span className={`f5-order-state ${operation.state}`}>{stateLabels[operation.state]}</span></div><div className="f5-order-summary"><span>{operation.quantity} {operation.action === 'hedge' ? 'acciones' : 'unidades'} · límite {cash(operation.limitPrice)}</span><span>Ejecutadas: <strong>{operation.brokerOrder?.filled_qty ?? '0'} / {operation.brokerOrder?.qty ?? operation.quantity}</strong></span><span>Precio medio ejecutado: <strong>{cash(operation.brokerOrder?.filled_avg_price == null ? null : Number(operation.brokerOrder.filled_avg_price))}</strong></span></div><div className="f5-order-leg-list">{operation.legs.map(leg => <p key={leg.symbol}>{intentLabels[leg.intent]} {operation.quantity * leg.ratio} · {leg.symbol}</p>)}</div><p className="f5-order-reference">Referencia: {operation.clientOrderId}{operation.brokerOrder && <><br/>ID Alpaca: {operation.brokerOrder.id} · estado: {operation.brokerOrder.status}</>}</p>{operation.message && <p className="f5-muted">{operation.message}</p>}<div className="f5-order-actions">{pending(operation) && operation.brokerOrder && <button className="secondary-button" disabled={busy} onClick={() => void cancel(operation)}>Solicitar cancelación</button>}{operation.action === 'open' && operation.state === 'filled' && !closeInProgress && <><button className="secondary-button" disabled={busy || !available} onClick={() => manage(operation, 'close')}>Preparar cierre</button>{operation.strategy === 'gamma' && <button className="secondary-button" disabled={busy || !available} onClick={() => manage(operation, 'hedge')}>Preparar cobertura en acciones</button>}</>}</div></article>;
+      return <article className="f5-order-card" key={operation.id}><div className="f5-order-card-heading"><div><strong>{operation.underlying} · {title(operation.strategy)}</strong><span>{operation.action === 'close' ? 'Cierre de opciones' : operation.action === 'hedge' ? 'Cobertura en acciones' : 'Apertura de estrategia'} · {dateTime(operation.createdAt)}</span></div><span className={`f5-order-state ${operation.state}`}>{stateLabels[operation.state]}</span></div><div className="f5-order-summary"><span>{operation.quantity} {operation.action === 'hedge' ? 'acciones' : 'unidades'} · límite {cash(operation.limitPrice)}</span><span>Ejecutadas: <strong>{operation.brokerOrder?.filled_qty ?? '0'} / {operation.brokerOrder?.qty ?? operation.quantity}</strong></span><span>Precio medio ejecutado: <strong>{cash(operation.brokerOrder?.filled_avg_price == null ? null : Number(operation.brokerOrder.filled_avg_price))}</strong></span></div><div className="f5-order-leg-list">{operation.legs.map(leg => <p key={leg.symbol}>{intentLabels[leg.intent]} {operation.quantity * leg.ratio} · {leg.symbol}</p>)}</div><p className="f5-order-reference">Referencia: {operation.clientOrderId}{operation.brokerOrder && <><br/>ID Alpaca: {operation.brokerOrder.id} · estado: {operation.brokerOrder.status}</>}</p>{operation.message && <p className="f5-muted">{operation.message}</p>}<div className="f5-order-actions">{pending(operation) && operation.brokerOrder && <button className="secondary-button" disabled={busy || !allowTrading} onClick={() => void cancel(operation)}>Solicitar cancelación</button>}{operation.action === 'open' && operation.state === 'filled' && !closeInProgress && <><button className="secondary-button" disabled={busy || !available} onClick={() => manage(operation, 'close')}>Preparar cierre</button>{operation.strategy === 'gamma' && <button className="secondary-button" disabled={busy || !available} onClick={() => manage(operation, 'hedge')}>Preparar cobertura en acciones</button>}</>}</div></article>;
     })}</div> : <p className="f5-empty">{available ? 'Todavía no hay órdenes F5 enviadas desde este servicio. Prepara y revisa una estrategia para comenzar.' : 'El registro se recupera desde el servicio de ejecución al conectar la cuenta.'}</p>}</section>
 
     <section className="panel f5-activities"><div className="f5-heading"><div><span className="f5-kicker">EVENTOS DEL BRÓKER</span><h2>Asignaciones, ejercicios y vencimientos</h2><p>Alpaca Paper puede publicar estas actividades al día siguiente. Las posiciones de la cuenta son la referencia actual para comprobar acciones disponibles.</p></div></div>{status?.activities.length ? <div className="f5-activity-list">{status.activities.map(activity => <article key={activity.id}><strong>{activity.symbol || 'Cuenta'} · {activity.type}</strong><p>{activity.description}</p><small>{activity.date} · cantidad {activity.quantity}</small></article>)}</div> : <p className="f5-empty">{available ? 'No se recibieron actividades de opciones en la consulta actual.' : 'Las actividades se consultarán directamente en Alpaca al conectar.'}</p>}</section>

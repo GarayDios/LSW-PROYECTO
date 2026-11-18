@@ -1,0 +1,68 @@
+import assert from 'node:assert/strict';
+/** QA only: no network request from these broker fixtures reaches a provider. */
+export function installWebullQA(){
+  const qa=window.__webullQA={operations:[],previews:0,submits:0};
+  const original=window.fetch.bind(window);
+  window.fetch=async(input,init)=>{
+    const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.href);
+    if(url.pathname!=='/api/webull')return original(input,init);
+    if(!init?.method||init.method==='GET')return Response.json({configured:true,connected:true,enabled:true,mode:'sandbox',region:'mx',operations:qa.operations});
+    const body=JSON.parse(init.body);
+    if(body.action==='preview'){qa.previews++;const operation={id:crypto.randomUUID(),clientOrderId:'qa-webull-'+crypto.randomUUID(),input:body.input,state:'preview',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()};qa.operations.push(operation);return Response.json({operation});}
+    const operation=qa.operations.find(op=>op.id===body.operationId);
+    if(body.action==='submit'){qa.submits++;operation.state='submitted';operation.order={...operation.input,clientOrderId:operation.clientOrderId,state:'SUBMITTED',filledQuantity:0};}
+    return Response.json({operation});
+  };
+}
+export async function runManualScenario({evaluate,click,input,until,screenshot}){
+  await evaluate(`document.querySelector('.chart-user-controls').open=true`);
+  await input('Precio del nivel','123.45');await input('Nombre del nivel','Soporte del profesor');
+  await click('Añadir nivel a NVDA');
+  await until(`Array.from(document.querySelectorAll('.market-chart [data-indicator]')).some(e=>e.textContent.includes('Soporte del profesor'))`);
+  await click('Quitar');
+  await until(`!document.querySelector('.market-chart').textContent.includes('Soporte del profesor')`);
+  await evaluate(`Array.from(document.querySelectorAll('.chart-user-controls label')).find(e=>e.textContent.includes('Indicadores de cores')).querySelector('input').click()`);
+  await until(`!document.querySelector('.market-chart [data-indicator=trend]')`);
+  await evaluate(`Array.from(document.querySelectorAll('.chart-user-controls label')).find(e=>e.textContent.includes('Indicadores de cores')).querySelector('input').click()`);
+  await click('Operar');await until(`!!document.querySelector('.ticket-dialog')`);
+  await click('Operar en Alpaca Paper');await until(`!!document.querySelector('.f5-account')`);
+  await evaluate(`window.__f5QA.statusFailure={code:'f5_runner_missing',message:'QA: falta configurar el servicio local.'}`);await click('Actualizar estado');
+  await until(`document.querySelector('.f5-connection').textContent.includes('QA: falta configurar')`);
+  assert(await evaluate(`!document.querySelector('.f5-connection a[href^="/signin-with-chatgpt"]')`),'Configuration error must not ask the signed-in user to log in again');
+  await evaluate(`window.__f5QA.statusFailure={code:'auth_required',message:'QA: inicia sesión para consultar.'}`);await click('Actualizar estado');
+  await until(`!!document.querySelector('.f5-connection a[href^="/signin-with-chatgpt"]')`);
+  await evaluate(`window.__f5QA.statusFailure=null`);await click('Actualizar estado');await until(`!!document.querySelector('.f5-account')`);
+  assert(await evaluate(`!document.querySelector('input[aria-label="Habilitar órdenes manuales Alpaca"]').checked`),'Broker execution starts disabled');
+  assert(await evaluate(`!document.body.innerText.includes('Control y automatización F5')&&!document.querySelector('.broker-plan-form')`),'No automatic execution controls exposed');
+  await until(`document.querySelector('select[aria-label="Contrato F5 1"]').options.length>1`);
+  assert.equal(await evaluate('window.__f5QA.inspect().submits'),0,'Automatic contract queries never submit an order');
+  const expiry=await evaluate(`document.querySelector('input[aria-label="Vencimiento F5"]').value`);
+  await input('Vencimiento F5','2099-01-01');
+  await until(`document.querySelector('.f5-builder').textContent.includes('Alpaca no devolvió contratos para este vencimiento')`);
+  assert(await evaluate(`document.querySelector('select[aria-label="Contrato F5 1"]').disabled`),'Empty expiry explains why the selector is unavailable');
+  await input('Vencimiento F5',expiry);
+  await until(`document.querySelector('select[aria-label="Contrato F5 1"]').options.length>1`);
+  await evaluate(`(()=>{const e=document.querySelector('select[aria-label="Contrato F5 1"]');e.value=e.options[1].value;e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await input('Precio límite F5','1.25');await input('Capital máximo F5','20000');
+  await click('Revisar orden F5');await until(`!!document.querySelector('.f5-review')`);
+  assert.equal(await evaluate('window.__f5QA.inspect().submits'),0);
+  assert(await evaluate(`document.querySelector('.f5-review .primary-button').disabled`),'Disabled session blocks final submission');
+  await evaluate(`document.querySelector('input[aria-label="Habilitar órdenes manuales Alpaca"]').click()`);
+  await evaluate(`(()=>{const b=document.querySelector('.f5-review .primary-button');b.click();b.click();})()`);
+  await until(`!!document.querySelector('.f5-order-state.submitted')`);
+  assert.equal(await evaluate('window.__f5QA.inspect().submits'),1,'One manual confirmation sends one request');
+  await click('Webull pruebas · acciones');await until(`!!document.querySelector('[aria-label="Órdenes manuales Webull"]')`);
+  await input('Cantidad Webull','2');await input('Precio límite Webull','100');await click('Revisar orden Webull');
+  await until(`!!document.querySelector('[aria-label="Revisión de orden Webull"]')`);
+  assert.equal(await evaluate('window.__webullQA.submits'),0);
+  assert(await evaluate(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent==='Confirmar y enviar a Webull pruebas').disabled`));
+  await evaluate(`document.querySelector('input[aria-label="Habilitar órdenes manuales Webull"]').click()`);
+  await until(`!document.querySelector('[aria-label="Revisión de orden Webull"]')`);
+  await click('Revisar orden Webull');await until(`!!document.querySelector('[aria-label="Revisión de orden Webull"]')`);
+  await evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(e=>e.textContent==='Confirmar y enviar a Webull pruebas');b.click();b.click();})()`);
+  await until(`document.querySelector('[aria-label="Órdenes manuales Webull"]').textContent.includes('Confirmada por Webull')`);
+  assert.equal(await evaluate('window.__webullQA.submits'),1,'No duplicate Webull submission');
+  await screenshot('manual-brokers-desktop.png',1440,1000);await screenshot('manual-brokers-mobile.png',390,844);
+  assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Manual workspace fits mobile');
+  console.log('PASS: user chart levels, indicator controls, Operar destinations, disabled sessions, reviewed manual Alpaca/Webull requests, duplicate-click guards and mobile. Broker responses are fixtures; no external orders sent.');
+}

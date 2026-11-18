@@ -139,6 +139,7 @@ export function createF5Handlers(dependencies: Dependencies) {
         const action = parsed.data;
         if (action.action === 'submit' && context.environment.ALPACA_F5_ENABLED !== 'true') throw new ApiError('f5_disabled', 'Activa ALPACA_F5_ENABLED=true en el terminal y el servicio para enviar opciones a Alpaca Paper.', 409);
         if (action.action === 'control') {
+          if(['enable-plan','tick'].includes(String(action.request.action)))throw new ApiError('manual_orders_only','El terminal usa órdenes manuales. Prepara y confirma cada operación por separado.',409);
           if (['enable-plan', 'tick'].includes(String(action.request.action)) &&
             (context.environment.ALPACA_F5_ENABLED !== 'true' || context.environment.ALPACA_F5_AUTOMATION_ENABLED !== 'true')) {
             throw new ApiError('f5_automation_disabled', 'Habilita ALPACA_F5_ENABLED y ALPACA_F5_AUTOMATION_ENABLED en el terminal y el servicio antes de activar un plan F5.', 409);

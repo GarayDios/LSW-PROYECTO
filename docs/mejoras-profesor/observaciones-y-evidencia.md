@@ -1,5 +1,10 @@
 # Observaciones del profesor y cómo demostrarlas
 
+> La revisión vigente está en [control del usuario y órdenes manuales, 18 de noviembre](revision-manual-2026-11-18.md).
+> Sustituye la observación anterior de automatizar operaciones: los datos siguen
+> automáticos, pero cada orden debe revisarse y confirmarse individualmente.
+> El contenido inferior conserva la revisión anterior como antecedente.
+
 Este documento relaciona las observaciones con el código que las atiende y con una demostración reproducible. Distingue la implementación local de una conexión real con una cuenta externa: sin claves de Alpaca Paper no se presenta una consulta de demostración como un histórico real ni una orden local como una orden enviada al bróker.
 
 | Observación | Implementación y ubicación | Demostración y límite |

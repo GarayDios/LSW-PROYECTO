@@ -69,6 +69,14 @@ function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (
 }
 function errorCode(result: { value: unknown }) { return (result.value as { error: { code: string } }).error.code; }
 
+test('manual account report is readable without submitting an order and keeps missing accounting evidence explicit',async t=>{
+  const fixture=setup();t.after(()=>fixture.store.close());
+  const result=await fixture.take('GET','report');
+  assert.equal(result.status,200);
+  const report=result.value as {currency:string;cycles:unknown[];warnings:string[]};
+  assert.equal(report.currency,'USD');assert.equal(report.cycles.length,0);assert.equal(fixture.sends(),0);
+});
+
 test('an unpriced account position still blocks new F5 exposure', async t => {
   const s=setup();t.after(()=>s.store.close());
   s.setPositions([{...position('AAPL',100),marketValue:null}]);

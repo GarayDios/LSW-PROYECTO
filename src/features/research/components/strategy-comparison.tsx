@@ -10,19 +10,24 @@ import EvaluationControls from './evaluation-controls';
 import { activeCoreWeight, coreWeight, evaluationTuning } from '../../../cores/evaluation-policy';
 import ModelAssumptions from './model-assumptions';
 import { modelMacroContext } from '../model-macro';
+import { modelDividendYield } from '../contract-terms';
 
 const money = (n: number | null) => n === null ? 'No determinado' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
-export default function StrategyComparison({research,days,cores,settings,onSettings,onChoose,onCores}:{research:CompanyResearch|null;days:number;cores:CoreId[];settings:AnalysisSettings;onSettings:(s:AnalysisSettings)=>void;onChoose:(s:StrategyId)=>void;onCores:(cores:CoreId[])=>void}) {
+export default function StrategyComparison({research,loading=false,error='',onRetry,days,cores,settings,onSettings,onChoose,onCores}:{research:CompanyResearch|null;loading?:boolean;error?:string;onRetry?:()=>void;days:number;cores:CoreId[];settings:AnalysisSettings;onSettings:(s:AnalysisSettings)=>void;onChoose:(s:StrategyId)=>void;onCores:(cores:CoreId[])=>void}) {
   const tuning=evaluationTuning(settings.tuning);
   const activeCount=cores.filter(c=>coreWeight(tuning,c)>0).length;
   const rows=useMemo(()=>research&&cores.length&&activeCoreWeight(evaluationTuning(settings.tuning),cores)>0?strategies.map(s=>({strategy:s,...rankObservedCompanies([research],cores,s.id,Math.max(1,days),analysisPolicy(settings,research))[0]})).sort((a,b)=>(b.score??-1)-(a.score??-1)):[],[research,cores,days,settings]);
   const macro=research?modelMacroContext(research,analysisPolicy(settings,research)):null;
+  const modelDividend=research?modelDividendYield(research,analysisPolicy(settings,research)):null;
   const dividend=research?settings.dividendPercentBySymbol[research.symbol]:undefined;
   const update=(key:'capital'|'feePerContract'|'maxSpreadPercent'|'longDays',value:number)=>{if(Number.isFinite(value))onSettings({...settings,[key]:value});};
   const best=rows.find(r=>r.score!==null && r.strategyAnalysis.status==='available' && r.strategy.id!=='gamma');
   return <section className="panel observed-strategy-analysis" aria-label="Comparación de estrategias por empresa">
     <h2>Compara estrategias para {research?.symbol??'tu empresa'}</h2>
-    <p>Datos automáticos de mercado y dividendos. Las estimaciones se identifican en las fuentes.</p>
+    <p>Consulta automática de mercado, dividendos y tasa. Capital disponible: {money(settings.capital)}.</p>
+    {loading&&<p role="status">Obteniendo datos de la empresa…</p>}
+    {error&&<p role="alert">{error} {onRetry&&<button className="secondary-button" onClick={onRetry} disabled={loading}>Reintentar consulta</button>}</p>}
+    {modelDividend&&<p className="automatic-input-status">Dividendo del modelo: {modelDividend.value===null?'no disponible':`${(modelDividend.value*100).toFixed(2)}% anual${modelDividend.kind==='estimated'?' · estimado automáticamente':modelDividend.kind==='assumed'?' · supuesto del modelo':''}`}. Las fuentes y los supuestos se pueden consultar en los detalles.</p>}
     <details className="comparison-advanced"><summary>Ajustar capital y criterios</summary>
     <div className="comparison-settings">
       <label>Capital disponible (USD)<input type="number" min="1" max="10000000" value={settings.capital} onChange={e=>update('capital',e.currentTarget.valueAsNumber)}/></label>
@@ -36,7 +41,7 @@ export default function StrategyComparison({research,days,cores,settings,onSetti
     {settings.modelMode==='estimated'&&<p role="status"><strong>MODO ESTIMADO: resultados bajo supuestos, no cotizaciones observadas.</strong></p>}
     {research&&<div className="comparison-assumption"><label><input type="checkbox" checked={dividend!==undefined} onChange={e=>{const values={...settings.dividendPercentBySymbol};if(e.target.checked)values[research.symbol]=0;else delete values[research.symbol];onSettings({...settings,dividendPercentBySymbol:values});}}/> Usar un dividendo supuesto solo para {research.symbol}</label>{dividend!==undefined&&<label>Dividendo anual supuesto (%)<input type="number" min="0" max="100" step="0.1" value={dividend} onChange={e=>{const v=e.currentTarget.valueAsNumber;if(Number.isFinite(v)&&v>=0&&v<=100)onSettings({...settings,dividendPercentBySymbol:{...settings.dividendPercentBySymbol,[research.symbol]:v}});}}/></label>}<p>0% supone ausencia de dividendos futuros. El supuesto queda identificado y no acredita información histórica. También se aplica al generar oportunidades de esta empresa.</p></div>}
     </details>
-    {!research?<p>Consulta las variables de una empresa con Alpaca para comparar.</p>:<>
+    {!research?(!loading&&!error&&<p>Esperando datos de la empresa para comparar.</p>):<>
       <p>{best?`Mayor compatibilidad calculable: ${best.strategy.title} (${best.score}/100).`:'Aún faltan entradas para completar los cores seleccionados.'} La media ponderada mide compatibilidad, no rentabilidad esperada. Gamma se revisa aparte porque requiere cobertura dinámica.</p>
       {!activeCount&&<p role="alert">Selecciona al menos un core con peso positivo para comparar.</p>}
       {cores.includes('probability')&&coreWeight(tuning,'probability')>0&&<p>PMCC y Gamma requieren modelos adicionales para publicar una probabilidad conjunta. <button className="secondary-button" onClick={()=>onCores(cores.filter(c=>c!=='probability'))}>Comparar sin el core de probabilidad</button> Los demás cores conservan sus pesos; esta elección también cambia el generador de oportunidades.</p>}
