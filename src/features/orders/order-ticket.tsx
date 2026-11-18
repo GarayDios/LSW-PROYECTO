@@ -138,14 +138,14 @@ export default function OrderTicket({ company, operationStart, operationEnd, sta
     <div className="ticket-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={modalRef} className="ticket-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="ticket-header">
-          <div><div className="ticket-eyebrow"><span /> PAPER TRADING</div><h2 id={titleId}>{review ? "Revisa tu simulación" : "Nueva operación"}</h2></div>
+          <div><div className="ticket-eyebrow"><span /> SIMULACIÓN DE OPCIONES</div><h2 id={titleId}>{review ? "Revisa tu simulación" : "Nueva operación"}</h2></div>
           <button type="button" className="ticket-icon" aria-label="Cerrar operación" onClick={onClose}><X size={19} /></button>
         </header>
         <div className="ticket-asset"><div className="ticket-symbol" style={{ color: company.color }}>{company.initials}</div><div><strong>{company.symbol}</strong><span>{company.name}</span></div><div className="ticket-asset-price"><strong>{usd(company.price)}</strong><span>Subyacente · dato simulado</span></div></div>
         <form onSubmit={submit} noValidate>
           {review ? (
             <div className="ticket-review">
-              <div className="ticket-review-banner"><ShieldCheck size={21} /><div><strong>Tu operación está lista para simular</strong><span>Se guardará localmente, sin enviar una orden al mercado.</span></div></div>
+              <div className="ticket-review-banner"><ShieldCheck size={21} /><div><strong>Tu operación está lista para simular</strong><span>Se guardará en el almacenamiento seleccionado, sin enviar una orden a Alpaca ni al mercado.</span></div></div>
               <dl className="ticket-summary">
                 <div><dt>Operación</dt><dd>{side === "buy" ? "Compra" : "Venta"} de {type.toUpperCase()}</dd></div>
                 <div><dt>Contratos</dt><dd>{quantity} × 100 acciones</dd></div>

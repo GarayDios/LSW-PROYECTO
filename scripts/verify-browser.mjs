@@ -159,7 +159,12 @@ try{
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
     assert(await evaluate(`!!document.querySelector('.persistence-loading-overlay [role="status"]')`),'Loading status remains accessible outside inert terminal');
   }
-  await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.market-chart') && !document.querySelector('vite-error-overlay')`);
+  if(mode==='quant'){
+    await until(`!!document.querySelector('select[aria-label="Fuente del histórico"]')`);
+    await delay(3000);
+    await evaluate(`(()=>{const e=document.querySelector('select[aria-label="Fuente del histórico"]');e.value='demo';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  }
+  if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.market-chart') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
   if(mode==='persistence'){
     const inspect=()=>evaluate('window.__tepicPersistenceQA.inspect()');
@@ -295,6 +300,20 @@ try{
     await screenshot('history-desktop.png',1440,1100);await screenshot('history-mobile.png',390,844);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'History and analysis controls fit mobile');
     console.log('PASS: simulated historical-provider API, three-year candles, calendar range, year axes, causal buy/sell markers, original CSV, company identity, explicit API errors and mobile. No live broker connection is claimed.');
+  }else if(mode==='quant'){
+    await until(`!!document.querySelector('.quant-lab')`);
+    await evaluate(`document.querySelector('.quant-lab').open=true; document.querySelector('.quant-lab').scrollIntoView()`);
+    await until(`(()=>{if(document.querySelector('.quant-lab').innerText.includes('Newton–Raphson'))return true;const e=document.querySelector('select[aria-label="Fuente del histórico"]');e.value='demo';e.dispatchEvent(new Event('change',{bubbles:true}));return false;})()`);
+    assert(await evaluate(`document.querySelector('.quant-lab').innerText.includes('Americana: $')`),'CRR prices rendered');
+    assert(await evaluate(`document.querySelector('.quant-lab').innerText.includes('iteraciones')`),'IV converged');
+    await screenshot('quant-desktop.png',1440,1000);
+    await evaluate(`(()=>{const e=document.querySelector('.quant-lab input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'999999');e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await until(`document.querySelector('.quant-lab').innerText.includes('fuera de los límites')`);
+    await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await evaluate(`document.querySelector('.quant-lab').scrollIntoView()`);
+    await screenshot('quant-mobile.png',390,844);
+    assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Quant lab mobile fits');
+    console.log('PASS: CRR and IV visible, impossible premium rejected, mobile width fits. No orders submitted.');
   }else if(mode==='screenshots'){
     await screenshot('desktop.png',1440,1000);await screenshot('mobile.png',390,844);
     assert(await evaluate('document.documentElement.scrollWidth <= innerWidth+1'),'Mobile horizontal overflow');

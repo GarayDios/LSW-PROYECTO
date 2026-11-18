@@ -28,3 +28,4 @@
 .sidebar > *{flex-shrink:0}
 .sidebar .watchlists{flex-shrink:0;max-height:230px;overflow-y:auto}
 .watchlists-status{padding:8px 11px;color:#a6afb9;font-size:11px;line-height:1.5}
+.quant-lab{padding:16px 20px;color:#c9d2dd;font-size:13px;line-height:1.7}.quant-lab summary{cursor:pointer;color:#ffa468;font-weight:600}.quant-lab p{margin:10px 0}.quant-lab h3{font-size:15px;margin-top:18px}.quant-lab code{display:block;padding:12px;background:#10151b;border-radius:5px;overflow-wrap:anywhere;white-space:normal;font-size:12px}.quant-lab input{display:block;margin-top:6px;padding:8px;background:#20262e;border:1px solid #526071;border-radius:4px;color:#fff;max-width:100%}

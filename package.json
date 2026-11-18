@@ -7,7 +7,7 @@
   },
   "scripts": {
     "install:ci": "node scripts/install-ci.mjs",
-    "test": "node --test tests/cores/quant.test.ts tests/cycles/cycle-simulator.test.ts tests/market/*.test.ts tests/database/*.test.ts tests/trading/*.test.ts tests/research/*.test.ts",
+    "test": "node --test tests/cores/*.test.ts tests/cycles/cycle-simulator.test.ts tests/market/*.test.ts tests/database/*.test.ts tests/trading/*.test.ts tests/research/*.test.ts",
     "test:trading": "node --test tests/trading/*.test.ts tests/market/*.test.ts",
     "test:db": "node --test tests/database/*.test.ts",
     "test:browser": "node scripts/verify-browser.mjs",
