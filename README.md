@@ -13,6 +13,12 @@ npm run dev
 
 Abre la URL que imprime el servidor (normalmente http://localhost:5173). Para indicar otro puerto: `npm run dev -- --port 3000`.
 
+MongoDB y el servicio de brókers son auxiliares en desarrollo: si alguno falla al
+iniciar, la interfaz permanece disponible y se informa el error. Las funciones de
+ese servicio requieren resolver su configuración o conectividad; no se cambia
+automáticamente la base de datos elegida. Si termina la interfaz, se cierran los
+servicios iniciados por esa sesión.
+
 ```sh
 npm test
 npm run typecheck
