@@ -1,12 +1,13 @@
 import type { Candle } from '../../features/market/chart-history.ts';
-import { deriveObservedMarket } from '../../features/research/derive.ts';
-import type { CompanyResearch, ResearchVariable } from '../../features/research/model.ts';
+import { deriveObservedMarket } from '../../cores/01-analisis-tecnico/market-analysis.ts';
+import type { CompanyResearch, ResearchVariable } from '../../cores/compartido/research-model.ts';
 import { fetchAlpacaNews, fetchAlpacaOptions, type AlpacaResearchConfig } from './alpaca.ts';
 import { fetchFredMacro, type FredResearchConfig } from './fred.ts';
 import { fetchSecFundamentals, type SecResearchConfig } from './sec.ts';
 import { validateResearchRequest, type ResearchFetch } from './http.ts';
 import { fetchMarketContext } from './market-context.ts';
 import { completeOptionInputs } from './complete-option-inputs.ts';
+import { enrichFundamentalValuation } from '../../cores/04-analisis-fundamental/fundamental-metrics.ts';
 
 export type CompanyResearchRequest = {
   symbol: string;
@@ -32,6 +33,7 @@ export async function fetchCompanyResearch(request: CompanyResearchRequest, fetc
   ]);
   market.lastDailyClose=market.spot;market.spotBasis='daily-close';
   if(context.spot.value!==null){market.spot=context.spot;market.spotBasis='quote';}
+  fundamentals.analysis = enrichFundamentalValuation(fundamentals, market.spot, asOf);
   if(context.annualDividend.value!==null&&market.spot.value!==null&&market.spot.value>0){
     fundamentals.dividendYield={...context.annualDividend,value:context.annualDividend.value/market.spot.value,
       source:context.annualDividend.source+' / precio de la acción · rendimiento continuo estimado',

@@ -6,7 +6,7 @@ import type { AlpacaOptionsClient } from '../../src/api/brokers/alpaca/options.t
 import type { F5Account, F5AutomationPlan, F5BrokerOrder, F5Contract, F5Control, F5ControlEvent, F5Leg, F5Operation, F5OrderInput, F5Position, F5Request, F5Status } from '../../src/features/f5/types.ts';
 import type { F5Store } from './f5-store.ts';
 import { executed, f5Residual, parsePlan, riskSettingsSchema } from './f5-model.ts';
-import { enforceF5Risk, measureF5Risk } from './f5-risk.ts';
+import { enforceF5Risk, measureF5Risk } from '../../src/cores/06-gestion-de-riesgos/f5-risk.ts';
 import { buildF5Report } from './f5-report.ts';
 
 export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'|'fillActivities'|'feeActivities'|'optionActivities'>>;

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createComparisonHandler } from '../../src/api/analysis/comparison.ts';
-import { compareStockRules, periodStart, type ComparisonResult } from '../../src/features/analysis/comparison.ts';
-import { analyzeHistory } from '../../src/features/analysis/signals.ts';
+import { compareStockRules, periodStart, type ComparisonResult } from '../../src/cores/05-indicadores-y-senales/comparison.ts';
+import { analyzeHistory } from '../../src/cores/05-indicadores-y-senales/signals.ts';
 import type { fetchAlpacaHistory } from '../../src/api/market/alpaca-history.ts';
 
 const now = Date.parse('2026-11-13T16:00:00Z');

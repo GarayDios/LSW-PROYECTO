@@ -1,7 +1,7 @@
 "use client";
 import { useState, type FormEvent } from 'react';
-import { CORE_IDS } from '../../../cores/types';
-import { evaluationTuning, evaluationTuningSchema } from '../../../cores/evaluation-policy';
+import { CORE_IDS } from '../../../cores/compartido/types';
+import { evaluationTuning, evaluationTuningSchema } from '../../../cores/evaluacion/evaluation-policy';
 import type { AnalysisSettings } from '../analysis-settings';
 
 const fields = [

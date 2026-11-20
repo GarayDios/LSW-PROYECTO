@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { companies } from '../src/features/market/data.ts';
-import { defaultCycleConfig, createCycle, advanceCycle, closeCycle, cycleValue, writeNextOption } from '../src/features/cycles/cycle-simulator.ts';
+import { defaultCycleConfig, createCycle, advanceCycle, closeCycle, cycleValue, writeNextOption } from '../src/cores/07-gestion-de-portafolio/cycle-simulator.ts';
 const nvda = companies.find(c => c.symbol === 'NVDA');
 const make = strategy => createCycle({...defaultCycleConfig(nvda,strategy,.04),id:`guide-${strategy}`,capital:strategy==='pmcc'?20000:5000,feePerContract:0,feePerShare:0});
 const pmcc = [100,120,145,160,170].map(spot=>{

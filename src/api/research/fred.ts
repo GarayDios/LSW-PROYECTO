@@ -1,4 +1,4 @@
-import { beforeCutoff, missingVariable, type ResearchMacro, type ResearchVariable } from '../../features/research/model.ts';
+import { beforeCutoff, missingVariable, type ResearchMacro, type ResearchVariable } from '../../cores/compartido/research-model.ts';
 import { numeric, providerFailure, record, researchJson, type ResearchFetch } from './http.ts';
 
 export type FredResearchConfig = { apiKey: string };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { walkForwardValidation, wilsonInterval } from '../../src/features/analysis/validation.ts';
+import { walkForwardValidation, wilsonInterval } from '../../src/cores/05-indicadores-y-senales/validation.ts';
 import type { Candle } from '../../src/features/market/chart-history.ts';
 
 const bars: Candle[] = Array.from({ length: 1000 }, (_, i) => {

@@ -1,4 +1,4 @@
-import { knownBy, type ObservedOptionContract,type CompanyResearch,type ResearchVariable } from './model.ts';
+import { knownBy, type ObservedOptionContract,type CompanyResearch,type ResearchVariable } from '../../cores/compartido/research-model.ts';
 const easternFormat=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
 const easternCache=new Map<string,string>();
 

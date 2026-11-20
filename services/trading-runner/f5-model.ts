@@ -1,3 +1,5 @@
+import { f5Today, f5Pending } from '../../src/cores/06-gestion-de-riesgos/operation-state.ts';
+export { f5Today, f5Pending };
 import { z } from 'zod';
 import { BrokerError } from '../../src/api/brokers/alpaca/client.ts';
 import { parseF5Request } from '../../src/features/f5/validation.ts';
@@ -29,8 +31,6 @@ export function parsePlan(value: unknown): F5AutomationPlanInput {
   if (request.action !== 'open') throw new BrokerError('f5_plan_invalid', 400, 'Un plan inicial requiere una apertura revisada.', false);
   return { ...rest, initial: request };
 }
-export function f5Today(time: number): string { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time)); }
-export const f5Pending = (operation: F5Operation) => ['reserved', 'submitted', 'partial', 'ambiguous'].includes(operation.state);
 export const executed = (operation: F5Operation, leg?: F5Leg): number => {
   if (!operation.brokerOrder) return 0;
   const value = leg && operation.input.order_class === 'mleg' ? operation.brokerOrder.legs?.find(actual => actual.symbol === leg.symbol)?.filled_qty : operation.brokerOrder.filled_qty;

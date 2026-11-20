@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { evaluationTuningSchema } from '../../cores/evaluation-policy.ts';
-import type { AnalysisPolicy } from '../../cores/strategy-analysis.ts';
-import type { CompanyResearch } from './model.ts';
+import { evaluationTuningSchema } from '../../cores/evaluacion/evaluation-policy.ts';
+import type { AnalysisPolicy } from '../../cores/evaluacion/strategy-analysis.ts';
+import type { CompanyResearch } from '../../cores/compartido/research-model.ts';
 
 export const analysisSettingsSchema = z.object({capital:z.number().finite().positive().max(1e7),feePerContract:z.number().finite().min(0).max(100),maxSpreadPercent:z.number().finite().min(0).max(200),longDays:z.number().int().min(1).max(3650),dividendPercentBySymbol:z.record(z.string().regex(/^[A-Z][A-Z0-9.-]{0,15}$/),z.number().finite().min(0).max(100)).refine(v=>Object.keys(v).length<=14),tuning:evaluationTuningSchema.optional(),
   modelMode:z.enum(['observed','estimated']).optional(),riskFreePercent:z.number().finite().min(-20).max(100).optional(),defaultDividendPercent:z.number().finite().min(0).max(100).optional(),

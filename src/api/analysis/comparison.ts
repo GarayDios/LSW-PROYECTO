@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { readBrokerConfig, BrokerConfigError } from '../brokers/config.ts';
 import { fetchAlpacaHistory, MarketDataError, newYorkDate, symbolSchema } from '../market/alpaca-history.ts';
-import { compareStockRules, periodStart, type ComparisonResult } from '../../features/analysis/comparison.ts';
+import { compareStockRules, periodStart, type ComparisonResult } from '../../cores/05-indicadores-y-senales/comparison.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {

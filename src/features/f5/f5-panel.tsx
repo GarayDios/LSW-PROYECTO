@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, Clock3, ExternalLink, Layers3, LoaderCircle, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { strategies } from '../strategies/catalog';
-import type { StrategyId } from '../../cores/types';
+import type { StrategyId } from '../../cores/compartido/types';
 import type { F5Contract, F5Operation, F5Request, F5Side, F5Status } from './types';
 import F5ReportPanel from './f5-report-panel';
 import './f5-panel.css';

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from 'react';
-import type { OptionInputs, OptionValue } from '../../../cores/types';
-import { density, normalCdf } from '../../../cores/math';
+import type { OptionInputs, OptionValue } from '../../../cores/compartido/types';
+import { density, normalCdf } from '../../../cores/nucleo-cuantitativo/math';
 
 const labels = { delta: 'Delta Δ', gamma: 'Gamma Γ', theta: 'Theta Θ / día', vega: 'Vega ν / 1%' };
 type Greek = keyof typeof labels;

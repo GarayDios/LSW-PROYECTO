@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { readBrokerConfig, BrokerConfigError, BrokerError } from '../brokers/index.ts';
 import { fetchAlpacaHistory, historyQuerySchema, MarketDataError, symbolSchema } from '../market/alpaca-history.ts';
 import { fetchCompanyResearch } from '../research/company.ts';
-import { rankObservedCompanies } from '../../cores/observed-ranking.ts';
-import type { CompanyResearch } from '../../features/research/model.ts';
+import { rankObservedCompanies } from '../../cores/evaluacion/observed-ranking.ts';
+import type { CompanyResearch } from '../../cores/compartido/research-model.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
 
 type Environment = Record<string, string | undefined>;

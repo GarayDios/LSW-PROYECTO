@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeStrategy } from '../../src/cores/strategy-analysis.ts';
-import { inspectContracts } from '../../src/cores/strategy-eligibility.ts';
-import { rankObservedCompanies, type ObservedRankedCompany } from '../../src/cores/observed-ranking.ts';
+import { analyzeStrategy } from '../../src/cores/evaluacion/strategy-analysis.ts';
+import { inspectContracts } from '../../src/cores/evaluacion/strategy-eligibility.ts';
+import { rankObservedCompanies, type ObservedRankedCompany } from '../../src/cores/evaluacion/observed-ranking.ts';
 import { analysisPolicy, defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
-import { missingVariable, type CompanyResearch } from '../../src/features/research/model.ts';
+import { missingVariable, type CompanyResearch } from '../../src/cores/compartido/research-model.ts';
 import { researchFixture, fixtureContract } from './research-fixture.ts';
 import { createResearchHandlers } from '../../src/api/analysis/handlers.ts';
 

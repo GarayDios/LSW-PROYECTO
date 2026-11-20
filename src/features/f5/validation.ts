@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BrokerError } from '../../api/brokers/alpaca/client.ts';
-import type { StrategyId } from '../../cores/types.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
 import type { F5Contract, F5Leg, F5OpenRequest, F5Request } from './types.ts';
 
 export const f5EquitySymbol = /^[A-Z][A-Z0-9.-]{0,14}$/;

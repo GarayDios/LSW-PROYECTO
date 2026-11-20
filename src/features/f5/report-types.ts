@@ -1,4 +1,4 @@
-import type { StrategyId } from '../../cores/types.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
 
 export type F5Coverage = 'complete' | 'partial' | 'unknown';
 /** Normalized server-only read of Alpaca activities. Missing money is never zero. */

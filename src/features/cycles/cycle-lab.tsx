@@ -5,7 +5,7 @@ import { ArrowDownToLine, ArrowRight, Check, Clock3, FlaskConical, Plus, Repeat2
 import { companies, type Company } from '../market/data';
 import { strategies } from '../strategies/catalog';
 import { blackScholes, type StrategyId } from '../../cores/index';
-import { accountSummary, addDays, advanceCycle, assignShortOption, closeCycle, createCycle, cycleValue, daysBetween, defaultCycleConfig, phaseNames, runScenario, writeNextOption, type CycleConfig, type Scenario, type SimCycle } from './cycle-simulator';
+import { accountSummary, addDays, advanceCycle, assignShortOption, closeCycle, createCycle, cycleValue, daysBetween, defaultCycleConfig, phaseNames, runScenario, writeNextOption, type CycleConfig, type Scenario, type SimCycle } from '../../cores/07-gestion-de-portafolio/cycle-simulator';
 import './cycle-lab.css';
 
 const usd=(n:number)=>n.toLocaleString('en-US',{style:'currency',currency:'USD'});

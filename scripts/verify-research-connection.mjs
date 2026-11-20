@@ -5,7 +5,7 @@ import { fetchAlpacaHistory, newYorkDate } from '../src/api/market/alpaca-histor
 import { fetchCompanyResearch } from '../src/api/research/company.ts';
 import { modelMacroContext } from '../src/features/research/model-macro.ts';
 import { analysisPolicy, defaultAnalysisSettings } from '../src/features/research/analysis-settings.ts';
-import { observedOptionInputs, selectObservedOption, rankObservedCompanies } from '../src/cores/observed-ranking.ts';
+import { observedOptionInputs, selectObservedOption, rankObservedCompanies } from '../src/cores/evaluacion/observed-ranking.ts';
 
 const environmentFile = fileURLToPath(new URL('../.env.local', import.meta.url));
 if (existsSync(environmentFile)) process.loadEnvFile(environmentFile);

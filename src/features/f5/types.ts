@@ -1,4 +1,4 @@
-import type { StrategyId } from '../../cores/types.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
 
 export type F5Side = 'buy' | 'sell';
 export type F5Intent = 'buy_to_open' | 'sell_to_open' | 'buy_to_close' | 'sell_to_close';

@@ -1,13 +1,13 @@
 "use client";
 import { useMemo } from 'react';
-import { rankObservedCompanies } from '../../../cores/observed-ranking';
-import type { CoreId, StrategyId } from '../../../cores/types';
+import { rankObservedCompanies } from '../../../cores/evaluacion/observed-ranking';
+import type { CoreId, StrategyId } from '../../../cores/compartido/types';
 import { strategies } from '../../strategies/catalog';
-import type { CompanyResearch } from '../model';
+import type { CompanyResearch } from '../../../cores/compartido/research-model';
 import { analysisPolicy, type AnalysisSettings } from '../analysis-settings';
 import './strategy-comparison.css';
 import EvaluationControls from './evaluation-controls';
-import { activeCoreWeight, coreWeight, evaluationTuning } from '../../../cores/evaluation-policy';
+import { activeCoreWeight, coreWeight, evaluationTuning } from '../../../cores/evaluacion/evaluation-policy';
 import ModelAssumptions from './model-assumptions';
 import { modelMacroContext } from '../model-macro';
 import { modelDividendYield } from '../contract-terms';

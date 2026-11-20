@@ -1,4 +1,4 @@
-import type { StrategyId } from '../../cores/types.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
 
 export const strategies: { id: StrategyId; title: string; subtitle: string; tag: string; description: string }[] = [
   { id: 'wheel', title: 'The Wheel', subtitle: 'Primas y generación de ingresos', tag: 'Ingresos', description: 'Venta de puts con efectivo reservado y, tras una posible asignación, calls cubiertas. El filtro favorece liquidez y una volatilidad moderada. La prima no elimina el riesgo de caída del subyacente.' },

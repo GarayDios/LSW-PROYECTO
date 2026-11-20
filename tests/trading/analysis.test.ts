@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeHistory } from '../../src/features/analysis/signals.ts';
+import { analyzeHistory } from '../../src/cores/05-indicadores-y-senales/signals.ts';
 import type { Candle } from '../../src/features/market/chart-history.ts';
 
 function history(count = 1000): Candle[] {

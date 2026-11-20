@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { openRunnerStore } from '../../services/trading-runner/store.ts';
 import { createRunner, orderIdForSignal, type RunnerBroker, type RunnerOrder } from '../../services/trading-runner/runner.ts';
 import { createRunnerService } from '../../services/trading-runner/server.ts';
-import { analyzeHistory } from '../../src/features/analysis/signals.ts';
+import { analyzeHistory } from '../../src/cores/05-indicadores-y-senales/signals.ts';
 import type { Candle } from '../../src/features/market/chart-history.ts';
 import type { RunnerStore, TradingPlan } from '../../services/trading-runner/model.ts';
 

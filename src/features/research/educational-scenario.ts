@@ -1,6 +1,6 @@
-import { selectObservedOption } from '../../cores/observed-ranking.ts';
-import type { StrategyId } from '../../cores/types.ts';
-import { knownBy, type ResearchSnapshot } from './model.ts';
+import { selectObservedOption } from '../../cores/evaluacion/observed-ranking.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
+import { knownBy, type ResearchSnapshot } from '../../cores/compartido/research-model.ts';
 import { equityTerms, valuationExpiry } from './contract-terms.ts';
 
 /** Educational sensitivities only. Never supplies orders, rankings or observed IV. */

@@ -4,11 +4,11 @@ import { fetchMarketContext } from '../../src/api/research/market-context.ts';
 import { fetchCompanyResearch } from '../../src/api/research/company.ts';
 import { completeOptionInputs } from '../../src/api/research/complete-option-inputs.ts';
 import { researchFixture, fixtureTime, fixtureContract, fixtureVariable } from './research-fixture.ts';
-import { missingVariable } from '../../src/features/research/model.ts';
-import { blackScholes } from '../../src/cores/bsm.ts';
-import { binomialPrice } from '../../src/cores/binomial.ts';
+import { missingVariable } from '../../src/cores/compartido/research-model.ts';
+import { blackScholes } from '../../src/cores/nucleo-cuantitativo/bsm.ts';
+import { binomialPrice } from '../../src/cores/nucleo-cuantitativo/binomial.ts';
 import { equityTerms, valuationExpiry } from '../../src/features/research/contract-terms.ts';
-import { rankObservedCompanies } from '../../src/cores/observed-ranking.ts';
+import { rankObservedCompanies } from '../../src/cores/evaluacion/observed-ranking.ts';
 const config={apiKey:'fixture',secretKey:'fixture'};
 const payment={id:'one',symbol:'XYZ',rate:1,ex_date:'2026-08-01',foreign:false,special:false};
 

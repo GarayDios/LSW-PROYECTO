@@ -1,13 +1,13 @@
 /** Recorrido educativo: usa el motor existente, sin red, claves ni órdenes de bróker.
  * Ejecutar con Node >=22.18: node scripts/explain-wheel.ts
  */
-import { blackScholes } from '../src/cores/bsm.ts';
-import { profitMetrics } from '../src/cores/probability.ts';
+import { blackScholes } from '../src/cores/nucleo-cuantitativo/bsm.ts';
+import { profitMetrics } from '../src/cores/nucleo-cuantitativo/probability.ts';
 import { companies } from '../src/features/market/data.ts';
 import {
   advanceCycle, closeCycle, createCycle, cycleValue, defaultCycleConfig, writeNextOption,
   type SimCycle,
-} from '../src/features/cycles/cycle-simulator.ts';
+} from '../src/cores/07-gestion-de-portafolio/cycle-simulator.ts';
 
 const company = companies.find(item => item.symbol === 'NVDA');
 if (!company) throw new Error('Falta la empresa de muestra NVDA.');

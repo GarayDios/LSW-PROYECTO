@@ -1,4 +1,4 @@
-import type { ProviderStatus } from '../../features/research/model.ts';
+import type { ProviderStatus } from '../../cores/compartido/research-model.ts';
 
 export type ResearchFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -31,20 +31,7 @@ export function providerFailure(source: string, error: unknown): ProviderStatus 
   return { source, status: 'error', message: error instanceof ResearchProviderError ? error.message : 'No fue posible validar los datos del proveedor.' };
 }
 
-export function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-export function numeric(value: unknown): number | null {
-  if (typeof value !== 'number' && typeof value !== 'string') return null;
-  if (typeof value === 'string' && !value.trim()) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-export function timestamp(value: unknown): string | null {
-  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
-}
+export { record, numeric, timestamp } from '../../cores/compartido/data-values.ts';
 
 export function validateResearchRequest(symbol: string, asOf: string): void {
   if (!/^[A-Z][A-Z0-9.-]{0,14}$/.test(symbol)) throw new RangeError('El símbolo no es válido.');

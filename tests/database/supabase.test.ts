@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { companies } from '../../src/features/market/data.ts';
-import { createCycle, defaultCycleConfig } from '../../src/features/cycles/cycle-simulator.ts';
+import { createCycle, defaultCycleConfig } from '../../src/cores/07-gestion-de-portafolio/cycle-simulator.ts';
 
 const db = new PGlite();
 const nvda = companies.find(company => company.symbol === 'NVDA')!;

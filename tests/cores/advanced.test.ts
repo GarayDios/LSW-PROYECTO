@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {blackScholes} from '../../src/cores/bsm.ts';
-import {binomialPrice} from '../../src/cores/binomial.ts';
-import {impliedVolatility} from '../../src/cores/implied-volatility.ts';
+import {blackScholes} from '../../src/cores/nucleo-cuantitativo/bsm.ts';
+import {binomialPrice} from '../../src/cores/nucleo-cuantitativo/binomial.ts';
+import {impliedVolatility} from '../../src/cores/nucleo-cuantitativo/implied-volatility.ts';
 const base={spot:100,strike:100,days:365,volatility:.2,rate:.05,dividendYield:0,type:'call' as const};
 test('CRR converges to BSM and American non-dividend call has no exercise premium',()=>{
  const bsm=blackScholes(base).price;

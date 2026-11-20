@@ -1,0 +1,16 @@
+.chart-study-toolbar{display:flex;flex-wrap:wrap;gap:7px;padding:12px 0}
+.chart-study-toolbar button{font-size:14px;padding:7px 10px;line-height:1.4;white-space:normal;min-height:34px}
+.chart-study-toolbar button[aria-pressed=true]{border-color:#cc7d39;color:#f2c39f;background:#cc7d3912}
+.technical-indicator-panels{display:block;width:100%;height:auto;margin-top:8px}
+.chart-panel{scroll-margin-top:80px}
+.chart-technical-status{font-size:14px;line-height:1.6;color:#a5adb7;padding:8px 0}
+.chart-technical-status strong{color:#e4e7ec}
+.history-view-controls{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:4px 0 14px;font-size:14px;color:#a5adb7}
+.history-view-controls button{font-size:14px;padding:6px 9px;min-height:32px}
+.history-view-controls button[aria-pressed=true]{border-color:#cc7d39;color:#f2c39f}
+.history-view-controls small{flex-basis:100%;font-size:12px;line-height:1.5}
+.chart-level-key{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chart-level-key span{border-left:3px solid;padding:5px 8px;font-size:12px;line-height:1.5;color:#b7c3cd;background:#ffffff04}
+.chart-marker-list{margin:12px 0;font-size:14px;line-height:1.6;color:#b7c3cd}
+.chart-marker-list summary{cursor:pointer}.chart-marker-list ul{padding-left:20px}.chart-marker-list li{margin:12px 0}.chart-marker-list li span{display:block}
+@media(max-width:650px){.chart-study-toolbar{gap:6px}.chart-study-toolbar button{flex:1 1 105px}}

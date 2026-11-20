@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeStrategy } from '../../src/cores/strategy-analysis.ts';
-import { estimatedSnapshot } from '../../src/cores/estimated-snapshot.ts';
-import { rankObservedCompanies } from '../../src/cores/observed-ranking.ts';
-import { simulateGammaPath } from '../../src/cores/gamma-path.ts';
-import { validateOptionRanking } from '../../src/cores/option-validation.ts';
+import { analyzeStrategy } from '../../src/cores/evaluacion/strategy-analysis.ts';
+import { estimatedSnapshot } from '../../src/cores/evaluacion/estimated-snapshot.ts';
+import { rankObservedCompanies } from '../../src/cores/evaluacion/observed-ranking.ts';
+import { simulateGammaPath } from '../../src/cores/evaluacion/gamma-path.ts';
+import { validateOptionRanking } from '../../src/cores/evaluacion/option-validation.ts';
 import { optionValidationExample } from '../../src/features/research/validation-example.ts';
 import { cashDividendPv } from '../../src/features/research/contract-terms.ts';
 import { orderContext } from '../../src/features/orders/order-context.ts';
 import { defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
-import { missingVariable } from '../../src/features/research/model.ts';
+import { missingVariable } from '../../src/cores/compartido/research-model.ts';
 import { researchFixture,fixtureTime,fixtureVariable as v } from './research-fixture.ts';
 
 test('estimated mode completes existing contracts transparently, preserves sources and neutralizes circular BSM comparisons',()=>{

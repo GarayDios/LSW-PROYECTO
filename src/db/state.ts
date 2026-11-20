@@ -1,7 +1,7 @@
 import { analysisSettingsSchema } from '../features/research/analysis-settings.ts';
 import { z } from 'zod';
-import { isSimCycle } from '../features/cycles/cycle-simulator.ts';
-import type { SimCycle } from '../features/cycles/cycle-simulator.ts';
+import { isSimCycle } from '../cores/07-gestion-de-portafolio/cycle-simulator.ts';
+import type { SimCycle } from '../cores/07-gestion-de-portafolio/cycle-simulator.ts';
 import type { PaperOrder } from '../features/orders/order-ticket.tsx';
 import { companies } from '../features/market/data.ts';
 

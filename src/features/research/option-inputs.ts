@@ -1,8 +1,8 @@
-import { observedOptionInputs as getObservedInputs, selectObservedOption } from '../../cores/observed-ranking';
-import type { StrategyId } from '../../cores/types';
-import type { ResearchSnapshot } from './model';
-import type { ObservedInputOverrides } from '../../cores/observed-ranking';
-import { estimatedSnapshot } from '../../cores/estimated-snapshot';
+import { observedOptionInputs as getObservedInputs, selectObservedOption } from '../../cores/evaluacion/observed-ranking';
+import type { StrategyId } from '../../cores/compartido/types';
+import type { ResearchSnapshot } from '../../cores/compartido/research-model';
+import type { ObservedInputOverrides } from '../../cores/evaluacion/observed-ranking';
+import { estimatedSnapshot } from '../../cores/evaluacion/estimated-snapshot';
 
 /** UI and ranking share the same contract selection and completeness rules. */
 export function observedOptionInputs(research: ResearchSnapshot | null, strategy: StrategyId = 'wheel', days = 30,overrides:ObservedInputOverrides={}) {

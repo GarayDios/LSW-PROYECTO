@@ -1,8 +1,8 @@
 import { missingFundamentals } from '../../src/api/research/sec.ts';
 import { missingMacro } from '../../src/api/research/fred.ts';
 import { missingNews,missingOptions } from '../../src/api/research/alpaca.ts';
-import { deriveObservedMarket } from '../../src/features/research/derive.ts';
-import type { CompanyResearch,ObservedOptionContract,ResearchVariable } from '../../src/features/research/model.ts';
+import { deriveObservedMarket } from '../../src/cores/01-analisis-tecnico/market-analysis.ts';
+import type { CompanyResearch,ObservedOptionContract,ResearchVariable } from '../../src/cores/compartido/research-model.ts';
 export const fixtureTime='2026-11-17T16:00:00.000Z';
 export const fixtureVariable=(value:number):ResearchVariable=>({value,source:'TEST FIXTURE',observedAt:fixtureTime,availableAt:fixtureTime,kind:'observed'});
 export function fixtureContract(type:'call'|'put',strike:number,bid=2,ask=2.2,expiration='2026-12-18'):ObservedOptionContract {

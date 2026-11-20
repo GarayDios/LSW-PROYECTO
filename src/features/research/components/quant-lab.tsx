@@ -1,9 +1,9 @@
 "use client";
 import { useMemo, useState } from 'react';
-import type { OptionInputs } from '../../../cores/types';
-import { blackScholes } from '../../../cores/bsm';
-import { binomialPrice } from '../../../cores/binomial';
-import { impliedVolatility } from '../../../cores/implied-volatility';
+import type { OptionInputs } from '../../../cores/compartido/types';
+import { blackScholes } from '../../../cores/nucleo-cuantitativo/bsm';
+import { binomialPrice } from '../../../cores/nucleo-cuantitativo/binomial';
+import { impliedVolatility } from '../../../cores/nucleo-cuantitativo/implied-volatility';
 export default function QuantLab({input}:{input:OptionInputs|null}) {
   const [premium,setPremium]=useState('');
   const result=useMemo(()=>{

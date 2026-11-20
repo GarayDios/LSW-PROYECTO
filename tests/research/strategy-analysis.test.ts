@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeStrategy, selectStrategyLegs } from '../../src/cores/strategy-analysis.ts';
-import { rankObservedCompanies } from '../../src/cores/observed-ranking.ts';
+import { analyzeStrategy, selectStrategyLegs } from '../../src/cores/evaluacion/strategy-analysis.ts';
+import { rankObservedCompanies } from '../../src/cores/evaluacion/observed-ranking.ts';
 import { missingFundamentals } from '../../src/api/research/sec.ts';
 import { missingMacro } from '../../src/api/research/fred.ts';
 import { missingNews, missingOptions } from '../../src/api/research/alpaca.ts';
-import { deriveObservedMarket } from '../../src/features/research/derive.ts';
+import { deriveObservedMarket } from '../../src/cores/01-analisis-tecnico/market-analysis.ts';
 import { analysisPolicy, defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
-import type { CompanyResearch, ObservedOptionContract, ResearchVariable } from '../../src/features/research/model.ts';
+import type { CompanyResearch, ObservedOptionContract, ResearchVariable } from '../../src/cores/compartido/research-model.ts';
 import { easternTime, equityTerms, valuationExpiry } from '../../src/features/research/contract-terms.ts';
-import { evaluationTuningSchema } from '../../src/cores/evaluation-policy.ts';
+import { evaluationTuningSchema } from '../../src/cores/evaluacion/evaluation-policy.ts';
 const asOf='2026-11-17T16:00:00Z';
 const v=(value:number):ResearchVariable=>({value,source:'fixture',observedAt:asOf,availableAt:asOf,kind:'observed'});
 function option(type:'call'|'put',strike:number,bid:number,ask:number,expiration='2026-12-18'):ObservedOptionContract {

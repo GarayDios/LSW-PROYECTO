@@ -23,6 +23,18 @@ La evidencia y los pasos para repetir la prueba de navegador están en [la docum
 
 ## Funciones
 
+- **Gráfica técnica:** paneles RSI/MACD, ATR y volumen relativo, soportes y
+  resistencias confirmados sin retrotraer la fecha conocida, marcas de compra/venta
+  y regla de confluencia opcional. Vistas de 3/6 meses conservan los datos del análisis
+  y del CSV. El fundamental añade 25 métricas posibles con cobertura y fuentes.
+  Consulta [el estado verificable de los siete cores](docs/verificacion/estado-de-los-siete-cores.md).
+
+- **IA según preferencias:** pronóstico experimental con histórico diario observado,
+  perfil de objetivo/riesgo/capital y comparación de estructuras que respetan sus
+  límites. Puede recomendar esperar; no envía órdenes. Consulta la
+  [separación entre núcleo cuantitativo y siete cores](docs/arquitectura/cores-y-nucleo-cuantitativo.md)
+  para el alcance, la validación y los módulos que siguen pendientes.
+
 - **Ciclos de inversión:** posiciones multipierna, efectivo, acciones, asignaciones de práctica, cierres y resultado realizado/no realizado para Wheel, PMCC, Backspread y Gamma Scalping. Lee [el recorrido de cada ciclo](docs/usuario/ciclos-de-inversion.md).
 
 - Fechas y horario de operación entre 09:30 y 16:00 ET. Se usa la zona America/New_York; no se supone una diferencia UTC fija.
@@ -30,7 +42,7 @@ La evidencia y los pasos para repetir la prueba de navegador están en [la docum
 - Señales gráficas de entrada/salida por cruce SMA20/50 y RSI14, con zona de validación temporal del último 30%. La prueba histórica ejecuta en la apertura siguiente, incluye costes y compara con comprar/mantener. Son reglas educativas explicables, no predicciones garantizadas.
 - Alpaca Paper con órdenes y posiciones conciliadas, cantidades y precios ejecutados, salidas por reglas o bracket GTC opcional, límites de capital/exposición/pérdida diaria y pausa de nuevas entradas. El servicio usa SQLite duradero e identificadores para evitar duplicados. Las opciones F5 siguen en el laboratorio de simulación.
 - Comparación de hasta seis empresas en uno, tres y cinco años: SMA20/50 con y sin filtro RSI14, costes iguales, resultados negativos, validación por ventanas, incertidumbre descriptiva y exportación CSV.
-- Siete cores independientes: Black–Scholes–Merton, griegas, equilibrio/probabilidad, volatilidad, tendencia, liquidez/volumen y riesgo. Sus indicadores se activan en la gráfica y sus puntuaciones tienen el mismo peso en el ranking. Los cuatro últimos son la ampliación propuesta ante la falta de nombres específicos en la solicitud.
+- Núcleo cuantitativo con Black–Scholes–Merton, griegas y equilibrio/probabilidad. El ranking conserva siete criterios históricos de evaluación, incluidos volatilidad, tendencia, liquidez/volumen y riesgo; sus identificadores no representan los siete cores funcionales de la arquitectura confirmada.
 - Comparación inmediata de las cuatro estrategias y top tres de empresas; pulsar una empresa la muestra en la gráfica. Las listas guardadas son copias del análisis, no cambian con la vista previa.
 - F5: The Wheel, Poor Man’s Covered Call (PMCC), Call Ratio Backspread 1:2 y Gamma Scalping.
 - Generar oportunidades calcula compatibilidad y conserva la configuración original. En demo usa el universo de muestra; en Alpaca usa snapshots y contratos verificables, con evidencia y exclusiones cuando faltan entradas.
@@ -85,10 +97,12 @@ El [mapa del proyecto](docs/arquitectura/estructura-del-proyecto.md) explica cad
 | Sección | Carpeta | Contenido |
 |---|---|---|
 | Entrada y estilos | `app/` | Página, layout y estilos globales del framework. |
-| Cores | `src/cores/` | Los siete núcleos, sus cálculos, puntuaciones, motivos y ranking. |
+| Siete cores funcionales | `src/cores/01-...` a `07-...` | Lógica real de técnico, IA, noticias, fundamental, señales, riesgos y portafolio. Empieza por [su guía](src/cores/README.md). |
+| Núcleo cuantitativo y evaluación | `src/cores/nucleo-cuantitativo/`, `src/cores/evaluacion/` | Fórmulas matemáticas separadas del ranking y las estructuras de opciones. |
+| Pantalla de IA | `src/features/intelligence/` | Formulario del perfil y presentación del pronóstico y las alternativas. |
 | APIs e integración | `src/api/` | Autenticación de ChatGPT y conectores del servidor. |
 | Funciones del terminal | `src/features/` | Terminal, mercado, oportunidades, órdenes, ciclos y estrategias. |
-| Análisis y automatización | `src/features/analysis/`, `src/features/trading/`, `services/trading-runner/` | Señales, backtest, planes, eventos y ejecución continua Paper. |
+| Pantallas de análisis y servicio | `src/features/analysis/`, `src/features/trading/`, `services/trading-runner/` | Interfaz de señales, planes, eventos y ejecución Paper. |
 | Interfaz compartida | `src/components/`, `src/hooks/`, `src/lib/` | Componentes UI, registro PWA, hooks y utilidades comunes. |
 | Base de datos | `src/db/`, `supabase/`, `services/mongo-api/` | Modelo, migración PostgreSQL, archivo MongoDB y acceso desde servidor. |
 | Pruebas | `tests/cores/`, `tests/cycles/`, `tests/market/`, `tests/database/` | Modelos, persistencia, aislamiento y sincronización. |

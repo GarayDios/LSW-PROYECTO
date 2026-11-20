@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveObservedMarket } from '../../src/features/research/derive.ts';
-import { knownBy, missingVariable, type CompanyResearch, type ResearchVariable, type ObservedOptionContract } from '../../src/features/research/model.ts';
+import { deriveObservedMarket } from '../../src/cores/01-analisis-tecnico/market-analysis.ts';
+import { knownBy, missingVariable, type CompanyResearch, type ResearchVariable, type ObservedOptionContract } from '../../src/cores/compartido/research-model.ts';
 import { missingFundamentals } from '../../src/api/research/sec.ts';
 import { missingMacro } from '../../src/api/research/fred.ts';
 import { missingNews, missingOptions } from '../../src/api/research/alpaca.ts';
-import { observedOptionInputs, rankObservedCompanies, selectObservedOption } from '../../src/cores/observed-ranking.ts';
+import { observedOptionInputs, rankObservedCompanies, selectObservedOption } from '../../src/cores/evaluacion/observed-ranking.ts';
 
 const cutoff = '2026-11-13T16:00:00.000Z';
 const bars = Array.from({ length: 100 }, (_, i) => {
@@ -125,7 +125,7 @@ test('future-published or absent inputs invalidate modeling even when a numeric 
 });
 
 import { educationalOptionScenario } from '../../src/features/research/educational-scenario.ts';
-import { blackScholes } from '../../src/cores/bsm.ts';
+import { blackScholes } from '../../src/cores/nucleo-cuantitativo/bsm.ts';
 test('educational Greeks use explicit dividends and dated prior IV without changing observed inputs', () => {
   const research = snapshot();
   research.market.stale = false;

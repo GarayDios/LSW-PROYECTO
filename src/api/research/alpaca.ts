@@ -1,4 +1,5 @@
-import { beforeCutoff, missingVariable, type ObservedOptionContract, type ResearchNews, type ResearchOptions, type ResearchVariable } from '../../features/research/model.ts';
+import { normalizeFinancialNews } from '../../cores/03-noticias-financieras/normalize-news.ts';
+import { beforeCutoff, missingVariable, type ObservedOptionContract, type ResearchNews, type ResearchOptions, type ResearchVariable } from '../../cores/compartido/research-model.ts';
 import { nextToken, numeric, providerFailure, record, researchJson, timestamp, validateResearchRequest, type ResearchFetch } from './http.ts';
 import { easternTime } from '../../features/research/contract-terms.ts';
 
@@ -174,16 +175,7 @@ export async function fetchAlpacaNews(config: AlpacaResearchConfig | undefined, 
       if (token) url.searchParams.set('page_token', token);
       const body = record(await researchJson(url, headers(config), fetcher));
       if (!Array.isArray(body.news)) throw new Error('invalid news');
-      for (const raw of body.news) {
-        const item = record(raw);
-        const publishedAt = timestamp(item.created_at);
-        const updatedAt = timestamp(item.updated_at);
-        // Headline can change on update: both dates must predate the decision.
-        if (!publishedAt || !updatedAt || Date.parse(publishedAt) > Date.parse(asOf) || Date.parse(updatedAt) > Date.parse(asOf) || typeof item.headline !== 'string') continue;
-        let url: string | null = null;
-        try { const parsed = new URL(String(item.url)); if (parsed.protocol === 'https:') url = parsed.toString(); } catch { /* no unsafe links */ }
-        articles.push({ id: String(item.id), headline: item.headline.slice(0, 500), url, source: typeof item.source === 'string' ? item.source : 'Alpaca', publishedAt, availableAt: updatedAt });
-      }
+      articles.push(...normalizeFinancialNews(body.news, asOf));
       token = nextToken(body.next_page_token);
       if (!token) { complete = true; break; }
       if (seen.has(token)) throw new Error('repeated token');

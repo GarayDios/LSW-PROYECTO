@@ -1,11 +1,11 @@
 "use client";
 import { useState } from 'react';
-import { optionDatasetSchema,validateOptionRanking,type OptionValidation } from '../../../cores/option-validation';
+import { optionDatasetSchema,validateOptionRanking,type OptionValidation } from '../../../cores/evaluacion/option-validation';
 import { optionValidationExample } from '../validation-example';
 import { analysisPolicy,type AnalysisSettings } from '../analysis-settings';
-import type { CompanyResearch } from '../model';
-import type { CoreId,StrategyId } from '../../../cores/types';
-import { evaluationTuning } from '../../../cores/evaluation-policy';
+import type { CompanyResearch } from '../../../cores/compartido/research-model';
+import type { CoreId,StrategyId } from '../../../cores/compartido/types';
+import { evaluationTuning } from '../../../cores/evaluacion/evaluation-policy';
 
 function download(name:string,value:unknown){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=name;link.click();URL.revokeObjectURL(url);}
 export default function OptionValidationPanel({research,cores,strategy,days,settings,onSettings}:{research:CompanyResearch|null;cores:CoreId[];strategy:StrategyId;days:number;settings:AnalysisSettings;onSettings:(s:AnalysisSettings)=>void}){

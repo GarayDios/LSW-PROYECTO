@@ -1,8 +1,8 @@
 "use client";
 import { useState } from 'react';
-import { gammaPathSchema,simulateGammaPath,type GammaPathResult } from '../../../cores/gamma-path';
+import { gammaPathSchema,simulateGammaPath,type GammaPathResult } from '../../../cores/evaluacion/gamma-path';
 import { analysisPolicy,type AnalysisSettings } from '../analysis-settings';
-import type { CompanyResearch } from '../model';
+import type { CompanyResearch } from '../../../cores/compartido/research-model';
 import { valuationExpiry } from '../contract-terms';
 
 export default function GammaPathPanel({research,days,settings}:{research:CompanyResearch|null;days:number;settings:AnalysisSettings}){

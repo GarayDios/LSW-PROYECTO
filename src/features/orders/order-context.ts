@@ -1,9 +1,9 @@
-import { selectObservedOption } from '../../cores/observed-ranking.ts';
-import { estimatedSnapshot } from '../../cores/estimated-snapshot.ts';
+import { selectObservedOption } from '../../cores/evaluacion/observed-ranking.ts';
+import { estimatedSnapshot } from '../../cores/evaluacion/estimated-snapshot.ts';
 import { equityTerms,modelDividendYield } from '../research/contract-terms.ts';
 import { analysisPolicy,type AnalysisSettings } from '../research/analysis-settings.ts';
-import { missingVariable,type CompanyResearch,type ObservedOptionContract,type ResearchVariable } from '../research/model.ts';
-import type { StrategyId } from '../../cores/types.ts';
+import { missingVariable,type CompanyResearch,type ObservedOptionContract,type ResearchVariable } from '../../cores/compartido/research-model.ts';
+import type { StrategyId } from '../../cores/compartido/types.ts';
 export type OrderContext={mode:'observed'|'estimated';asOf:string|null;spot:ResearchVariable;volatility:ResearchVariable;rate:ResearchVariable;dividendYield:ResearchVariable;contract:ObservedOptionContract|null;multiplier:number;shares:number;warnings:string[];dividendModel?:'continuous'|'declared-cash';cashDividends?:CompanyResearch['cashDividends']};
 export function orderContext(research:CompanyResearch|null,strategy:StrategyId,days:number,settings:AnalysisSettings):OrderContext {
   const missing=()=>missingVariable('Investigación de la empresa','Sin entrada verificable; no se sustituye por datos demo.');

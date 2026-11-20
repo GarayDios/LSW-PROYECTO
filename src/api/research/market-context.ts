@@ -1,4 +1,4 @@
-import { missingVariable, type ResearchVariable, type CompanyResearch } from '../../features/research/model.ts';
+import { missingVariable, type ResearchVariable, type CompanyResearch } from '../../cores/compartido/research-model.ts';
 import { numeric,record,researchJson,timestamp,providerFailure,type ResearchFetch } from './http.ts';
 import type { AlpacaResearchConfig } from './alpaca.ts';
 

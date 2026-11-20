@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { optionValidationExample } from '../src/features/research/validation-example.ts';
 import { installF5QA } from './f5-browser-scenario.mjs';
 import { installWebullQA,runManualScenario } from './manual-browser-scenario.mjs';
+import { installIntelligenceQA,runIntelligenceScenario } from './intelligence-browser-scenario.mjs';
+import { installTechnicalQA,runTechnicalScenario,technicalFundamentalFixture } from './technical-browser-scenario.mjs';
 const mode=process.argv[2]||'flow';
 const baseURL=process.env.QA_URL||'http://127.0.0.1:5173';
 const profile=await mkdtemp(path.join(tmpdir(),'tepic-qa-'));
@@ -24,7 +26,7 @@ try{
   async function reload(){const origin=await evaluate('performance.timeOrigin');await send('Page.reload');await until(`performance.timeOrigin>${origin}`);}
   async function click(text){const clicked=await evaluate(`(()=>{const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)});if(e){e.click();return true;}return false;})()`);assert(clicked,'Missing button '+text);await delay(150);}
   async function input(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('input[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Missing input '+label);await delay(100);}
-  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
+  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}if(name.startsWith('intelligence-')){await evaluate("document.querySelector('.intelligence-panel').scrollIntoView()");await delay(150);}if(name.startsWith('technical-')){await evaluate("document.querySelector('.chart-panel').scrollIntoView()");await delay(150);}if(name.startsWith('fundamental-')){await evaluate("document.querySelector('.fundamental-analysis').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
   await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   if(mode==='persistence'){
     // Exercise the real UI in isolation. Only its persistence endpoint is mocked;
@@ -83,7 +85,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
   }
-  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'){
+  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
     // A tagged provider fixture checks the real chart and controls without
     // claiming a live Alpaca connection or requiring trading credentials.
     function installHistoryQA(){
@@ -158,7 +160,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
-  if(mode==='strategies'||mode==='delivery'||mode==='manual'){
+  if(mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
     function installStrategyQA(automatic=false){
       const qa=window.__strategyQA={fail:false};
       const originalFetch=window.fetch.bind(window);
@@ -179,9 +181,9 @@ try{
           macro:{treasury3MonthPercent:v(4),riskFreeRate:v(.04),inflationYearOverYear:v(.02),realGdpGrowth:v(.03),status,warnings:[]},news:{articles:[],complete:true,status,warnings:[]},quality:{historicalOnly:false,missing:automatic?[]:['dividendYield'],stale:[],sources:[status]},warnings:['QA: no son datos de mercado reales']};window.__deliveryResearch=research;return Response.json({research});
       };
     }
-    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'});`});
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'});`});
   }
-  if(mode==='delivery'||mode==='manual'){
+  if(mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
     function installDeliveryQA(){
       const qa=window.__delivery={phase:'submitted',mutations:[],rankingRequests:[]};
       const originalFetch=window.fetch.bind(window);
@@ -213,6 +215,12 @@ try{
   if(mode==='manual'){
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installF5QA.toString()})();(${installWebullQA.toString()})();`});
   }
+  if(mode==='intelligence'){
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installIntelligenceQA.toString()})();`});
+  }
+  if(mode==='technical'){
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installTechnicalQA.toString()})(${JSON.stringify(technicalFundamentalFixture())});`});
+  }
   await send('Page.navigate',{url:baseURL+'/'});
   if(mode==='persistence'){
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
@@ -225,7 +233,11 @@ try{
   }
   if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.chart-panel') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
-  if(mode==='manual'){
+  if(mode==='technical'){
+    await runTechnicalScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='intelligence'){
+    await runIntelligenceScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='manual'){
     await runManualScenario({evaluate,click,input,until,screenshot});
   }else if(mode==='delivery'){
     await until(`!!window.__deliveryResearch && !!document.querySelector('.comparison-assumption')`);
@@ -431,11 +443,13 @@ try{
     await until(`window.__tepicHistoryQA.calls.length>0 && !!document.querySelector('.market-chart [data-validation-region]')`);
     const query=await evaluate('window.__tepicHistoryQA.calls.at(-1)');
     assert.equal(query.interval,'1d');
-    assert.equal(query.start,'2023-11-09');
-    assert.equal(query.end,'2026-11-09');
+    assert.equal(query.end,await evaluate(`document.querySelector('input[aria-label="Fin de histórico de velas"]').value`));
+    assert.equal(query.start,await evaluate(`document.querySelector('input[aria-label="Inicio de histórico de velas"]').value`));
+    const requestedDays=(Date.parse(query.end)-Date.parse(query.start))/86400000;
+    assert(requestedDays>=1095&&requestedDays<=1096,'Three-year preset requests three calendar years');
     assert(await evaluate(`Number(document.querySelector('.history-summary span').textContent.split(' ')[0].replaceAll(',',''))>700`),'Three-year fixture is displayed');
     await until(`document.querySelector('.company-heading p').textContent==='Empresa de prueba de la API'`);
-    assert(await evaluate(`Array.from(document.querySelectorAll('.market-chart svg text')).some(element=>element.textContent.includes('2023'))`),'Axes include the year');
+    assert(await evaluate(`Array.from(document.querySelectorAll('.market-chart svg text')).some(element=>element.textContent.includes(${JSON.stringify(query.start.slice(0,4))}))`),'Axes include the year');
     assert(await evaluate(`document.querySelectorAll('.market-chart [data-signal="buy"]').length>0`),'Historical buy signals remain visible after chart aggregation');
     assert(await evaluate(`document.querySelectorAll('.market-chart [data-signal="sell"]').length>0`),'Historical sell signals remain visible after chart aggregation');
     assert(await evaluate(`!!document.querySelector('[data-analysis-indicator="sma20-50"]')`),'Causal rule averages are graphed');

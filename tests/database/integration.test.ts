@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createPersistenceHandlers } from '../../src/api/persistence/handler.ts';
 import { createDefaultState } from '../../src/db/state.ts';
 import { SupabaseRepository } from '../../src/db/supabase/client.ts';
-import { createCycle, defaultCycleConfig } from '../../src/features/cycles/cycle-simulator.ts';
+import { createCycle, defaultCycleConfig } from '../../src/cores/07-gestion-de-portafolio/cycle-simulator.ts';
 import { companies } from '../../src/features/market/data.ts';
 import { snapshotInputSchema } from '../../services/mongo-api/model.ts';
 

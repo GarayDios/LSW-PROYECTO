@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { analyzeHistory, type AnalysisResult } from '../../src/features/analysis/signals.ts';
+import { analyzeHistory, type AnalysisResult } from '../../src/cores/05-indicadores-y-senales/signals.ts';
 import type { Candle } from '../../src/features/market/chart-history.ts';
 import type { Execution, PortfolioStatus, PositionLedger, RunEvent, RunnerStore, TradingPlan } from './model.ts';
 import type { PaperOrderInput } from '../../src/api/brokers/alpaca/client.ts';

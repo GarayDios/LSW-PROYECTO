@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from 'react';
-import type { ResearchSnapshot } from '../model';
+import type { ResearchSnapshot } from '../../../cores/compartido/research-model';
 
 /** An aborted or older query must never replace the selected company's data. */
 export function useCompanyResearch({ enabled, symbol, start, end, cutoff }: {

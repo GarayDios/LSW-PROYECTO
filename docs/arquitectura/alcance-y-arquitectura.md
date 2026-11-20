@@ -1,5 +1,11 @@
 # Especificación del proyecto TEPIC
 
+**Definición vigente:** el núcleo cuantitativo y los siete cores funcionales se
+distinguen en [la arquitectura confirmada](cores-y-nucleo-cuantitativo.md).
+La ampliación de siete núcleos descrita a continuación corresponde a la
+interpretación anterior; sus identificadores se conservan como criterios del
+ranking para mantener compatibilidad.
+
 Ampliación de noviembre de 2026: ahora hay siete núcleos, comparación en vivo y sesiones sintéticas coherentes entre temporalidades. La descripción original de tres núcleos se amplía según [el detalle de cambios](../cambios/cambios-noviembre-2026.md); los cuatro adicionales son una propuesta de implementación, pendiente de confirmar si se esperan otros nombres académicos.
 
 La solicitud del usuario define el alcance: construir desde cero una interfaz de bróker naranja, con rango operativo, histórico de velas, selección F0/F5 y generación de listas ordenadas de empresas. Los siete documentos de `guia-academica-inversiones` se consultaron como referencia posterior; sus instrucciones a alumnos y reglas de otro repositorio no se convierten automáticamente en instrucciones de este proyecto.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCycle, advanceCycle, writeNextOption, assignShortOption, closeCycle, runScenario, cycleValue, defaultCycleConfig, accountSummary, isSimCycle, type CycleConfig } from '../../src/features/cycles/cycle-simulator.ts';
+import { createCycle, advanceCycle, writeNextOption, assignShortOption, closeCycle, runScenario, cycleValue, defaultCycleConfig, accountSummary, isSimCycle, type CycleConfig } from '../../src/cores/07-gestion-de-portafolio/cycle-simulator.ts';
 import { companies } from '../../src/features/market/data.ts';
 
 const nvda = companies.find(c => c.symbol === 'NVDA')!;

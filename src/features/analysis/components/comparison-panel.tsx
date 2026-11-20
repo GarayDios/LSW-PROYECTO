@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import type { ComparisonResult } from '../comparison';
+import type { ComparisonResult } from '../../../cores/05-indicadores-y-senales/comparison';
 import './comparison-panel.css';
 
 const pct = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;

@@ -6,7 +6,7 @@ import type { Company } from "../market/data";
 import { blackScholes, profitMetrics } from "../../cores/index";
 import type { OrderContext } from './order-context';
 import { easternTime,cashDividendPv } from '../research/contract-terms';
-import type { OptionInputs } from '../../cores/types';
+import type { OptionInputs } from '../../cores/compartido/types';
 
 export type PaperOrder = {
   id: string;

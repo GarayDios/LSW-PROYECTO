@@ -1,7 +1,7 @@
-import { knownBy, type CompanyResearch } from '../../features/research/model.ts';
+import { knownBy, type CompanyResearch } from '../../cores/compartido/research-model.ts';
 import { equityTerms, valuationExpiry } from '../../features/research/contract-terms.ts';
-import { blackScholes } from '../../cores/bsm.ts';
-import { binomialPrice } from '../../cores/binomial.ts';
+import { blackScholes } from '../../cores/nucleo-cuantitativo/bsm.ts';
+import { binomialPrice } from '../../cores/nucleo-cuantitativo/binomial.ts';
 
 /** Derive IV from received quotes, never from HV or fabricated prices. Bounded CPU. */
 export function completeOptionInputs(s:CompanyResearch):void {

@@ -1,5 +1,5 @@
-import { knownBy, type CompanyResearch, type ResearchVariable } from './model.ts';
-import type { AnalysisPolicy } from '../../cores/strategy-analysis.ts';
+import { knownBy, type CompanyResearch, type ResearchVariable } from '../../cores/compartido/research-model.ts';
+import type { AnalysisPolicy } from '../../cores/evaluacion/strategy-analysis.ts';
 
 /** The external observation remains visible when an explicit scenario overrides it. */
 export function modelMacroContext(snapshot: CompanyResearch, policy: AnalysisPolicy = {}) {

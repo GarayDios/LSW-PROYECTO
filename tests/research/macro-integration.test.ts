@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fetchFredMacro, missingMacro } from '../../src/api/research/fred.ts';
 import { analysisPolicy, defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
 import { modelMacroContext } from '../../src/features/research/model-macro.ts';
-import { observedOptionInputs, selectObservedOption, rankObservedCompanies } from '../../src/cores/observed-ranking.ts';
+import { observedOptionInputs, selectObservedOption, rankObservedCompanies } from '../../src/cores/evaluacion/observed-ranking.ts';
 import { researchFixture, fixtureVariable } from './research-fixture.ts';
 
 test('ALFRED rate reaches option inputs and ranked strategy valuation; manual override stays separate', async () => {

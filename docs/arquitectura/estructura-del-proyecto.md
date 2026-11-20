@@ -1,6 +1,6 @@
 # Estructura del proyecto
 
-Las ampliaciones del ciclo operativo mantienen esta organización: cálculo y comparación en `src/features/analysis/`, rutas autenticadas en `src/api/analysis/`, controles en `src/features/trading/`, y ejecución, ledger y alertas en `services/trading-runner/`. Los contenedores están en cada servicio y la composición en `services/compose.yaml`. Consulta [el mapa y estado de la revisión](../cambios/ciclo-operativo-y-datos.md).
+Los siete cores funcionales y sus cálculos están en `src/cores/`, separados del núcleo cuantitativo. Cada carpeta numerada tiene un README y un `index.ts`. Las pantallas permanecen en `src/features/`, los adaptadores en `src/api/` y la ejecución en `services/trading-runner/`. Empieza por [la guía de cores para la revisión](../../src/cores/README.md).
 
 El código se agrupa por sección. `app/` conserva los puntos de entrada del framework y `src/` contiene la implementación de la aplicación.
 
@@ -8,36 +8,37 @@ El código se agrupa por sección. `app/` conserva los puntos de entrada del fra
 tepic-terminal/
 ├── app/                       Página, layout y estilos globales
 ├── src/
-│   ├── cores/                 Análisis cuantitativo F0
-│   │   ├── bsm.ts             Precio Black–Scholes–Merton y criterio BSM
-│   │   ├── greeks.ts          Sensibilidades y criterio de griegas
-│   │   ├── probability.ts     Equilibrio y probabilidad de beneficio
-│   │   ├── volatility.ts      Criterio de volatilidad
-│   │   ├── trend.ts           Criterio de tendencia
-│   │   ├── liquidity.ts       Criterio de liquidez y volumen
-│   │   ├── risk.ts            Criterio de riesgo
-│   │   ├── ranking.ts         Combinación de cores y ranking de empresas
-│   │   ├── catalog.ts         Nombres y descripciones de los cores
-│   │   ├── types.ts           Tipos compartidos del análisis
-│   │   ├── math.ts            Funciones matemáticas comunes
-│   │   ├── validation.ts      Validación compartida de entradas
-│   │   └── index.ts           Exportaciones públicas del análisis
+│   ├── cores/                 Lógica de los siete cores y biblioteca matemática
+│   │   ├── 01-analisis-tecnico/        Indicadores y métricas de mercado
+│   │   ├── 02-inteligencia-artificial/ Predicción y preferencias
+│   │   ├── 03-noticias-financieras/    Normalización y fechas de noticias
+│   │   ├── 04-analisis-fundamental/    Hechos SEC y ratios financieros
+│   │   ├── 05-indicadores-y-senales/   Reglas y validación de señales
+│   │   ├── 06-gestion-de-riesgos/      Exposición, delta y límites
+│   │   ├── 07-gestion-de-portafolio/   Posiciones y contabilidad de ciclos
+│   │   ├── nucleo-cuantitativo/        BSM, griegas, equilibrio y probabilidad
+│   │   ├── evaluacion/                Ranking y estructuras de opciones
+│   │   ├── compartido/                Tipos, procedencia y normalización
+│   │   ├── catalog.ts                 Los siete cores funcionales
+│   │   └── index.ts                   Entrada compatible del terminal
 │   ├── api/
 │   │   ├── auth/              Autenticación de ChatGPT
 │   │   ├── connectors/        Cliente, contrato, contexto y errores
 │   │   ├── brokers/           Cliente Alpaca Paper y requisitos Webull
 │   │   ├── market/            Histórico del proveedor y normalización de velas
+│   │   ├── research/          Adaptadores SEC, Alpaca y FRED
 │   │   ├── trading/           Permisos, estado de cuenta y proxy de automatización
 │   │   └── persistence/       Validación y guardado autenticado del terminal
 │   ├── features/
 │   │   ├── terminal/          Estado, navegación, listas y persistencia
 │   │   ├── market/            Datos de muestra, histórico y gráfico
-│   │   ├── analysis/          Medias, RSI, señales causales y validación temporal
+│   │   ├── analysis/          Pantallas de señales y comparación
+│   │   ├── intelligence/      Formulario del perfil y pantalla de IA
 │   │   ├── trading/           Panel de cuenta, planes y registro Paper
 │   │   ├── opportunities/     Comparación de estrategias y empresas
 │   │   ├── persistence/       Guardado, importación y sincronización por usuario
 │   │   ├── orders/            Formulario y revisión de órdenes simuladas
-│   │   ├── cycles/            Motor, interfaz y estilos de los ciclos
+│   │   ├── cycles/            Interfaz y estilos de los ciclos
 │   │   └── strategies/        Catálogo de estrategias F5
 │   ├── components/
 │   │   ├── ui/                Componentes visuales compartidos
@@ -72,9 +73,11 @@ tepic-terminal/
 
 | Cambio | Archivos o carpeta |
 |---|---|
-| Fórmulas, puntuación o motivo de un core | Su archivo en `src/cores/`. |
-| Selección y media de los cores, parámetros por estrategia o desempates | `src/cores/ranking.ts`. |
-| Títulos y descripciones de los cores | `src/cores/catalog.ts`. |
+| Fórmulas BSM, griegas, equilibrio y probabilidad | `src/cores/nucleo-cuantitativo/`. |
+| Lógica de cada core | Su carpeta numerada en `src/cores/`. |
+| Media de criterios, parámetros por estrategia o desempates | `src/cores/evaluacion/`. |
+| Títulos y responsabilidades de los siete cores | `src/cores/catalog.ts`. |
+| Títulos de los criterios históricos del ranking | `src/cores/evaluacion/catalog.ts`. |
 | Autenticación y datos del usuario de ChatGPT | `src/api/auth/chatgpt-auth.ts`. |
 | Llamadas a conectores | `src/api/connectors/client.ts`; contrato y contexto junto a él. |
 | Errores recuperables de conectores | `src/api/connectors/errors.mts` y `connector-error.tsx`. |
@@ -84,7 +87,7 @@ tepic-terminal/
 | Gráfico e indicadores visuales | `src/features/market/components/market-chart.tsx`. |
 | Comparador de empresas y estrategias | `src/features/opportunities/opportunity-overview.tsx`. |
 | Revisión y confirmación de órdenes | `src/features/orders/order-ticket.tsx`. |
-| Contabilidad, escenarios, asignaciones y cierres | `src/features/cycles/cycle-simulator.ts`. |
+| Contabilidad, escenarios, asignaciones y cierres | `src/cores/07-gestion-de-portafolio/cycle-simulator.ts`. |
 | Formulario e historial de ciclos | `src/features/cycles/cycle-lab.tsx` y `cycle-lab.css`. |
 | Descripción de Wheel, PMCC, Backspread y Gamma Scalping | `src/features/strategies/catalog.ts`. |
 | Componentes comunes y aspecto general | `src/components/ui/` y `app/globals.css`. |
@@ -93,10 +96,10 @@ tepic-terminal/
 | Guardado de datos del terminal | `src/features/persistence/`; API en `app/api/persistence/route.ts`. |
 | Velas reales, calendario y paginación | `src/api/market/alpaca-history.ts`. |
 | Cuenta y órdenes de práctica | `src/api/brokers/alpaca/client.ts`; acceso autorizado en `src/api/trading/handlers.ts`. |
-| Reglas de entrada y prueba temporal | `src/features/analysis/signals.ts`. |
+| Reglas de entrada y prueba temporal | `src/cores/05-indicadores-y-senales/signals.ts`. |
 | Ejecución automática con el navegador cerrado | `services/trading-runner/`; requiere un proceso activo y almacenamiento duradero. |
 
-`src/api/` reúne la infraestructura de integración que ya existe. Actualmente la aplicación usa datos de muestra y operaciones simuladas; no contiene una API de cotizaciones ni de envío de órdenes a un bróker. Las rutas HTTP que se añadan al framework deben declararse en `app/api/`; su lógica de integración puede ubicarse en `src/api/`.
+`src/api/` reúne los adaptadores y permisos de datos y brókers. Las rutas HTTP se declaran en `app/api/`; las consultas externas y secretos permanecen en el servidor. El envío a los entornos de práctica requiere configuración, revisión y confirmación manual. Las noticias y fundamentales conservan su procedencia; el enlace a Finviz es una consulta externa y no cambia la fuente SEC del terminal.
 
 Los imports con `@/` apuntan a `src/`. Las funciones que se ejecutan directamente con Node en las pruebas usan rutas relativas con extensión `.ts`.
 
@@ -114,6 +117,8 @@ Para comprobar cambios de código, ejecuta `npm test`, `npm run typecheck` y `np
 ## Documentación relacionada
 
 - [Alcance y arquitectura](alcance-y-arquitectura.md).
+- [Núcleo cuantitativo y siete cores](cores-y-nucleo-cuantitativo.md).
+- [Comparación de SEC y Finviz](../integraciones/sec-y-finviz.md).
 - [Modelo de base de datos](base-de-datos.md) y [configuración de Supabase y MongoDB](../base-de-datos/configuracion.md).
 - [Observaciones del profesor](../mejoras-profesor/observaciones-y-evidencia.md) y [Alpaca Paper y automatización](../integraciones/alpaca-y-automatizacion.md).
 - [Manual de usuario](../usuario/guia-de-usuario.md) y [manual en PDF](../usuario/guia-de-usuario.pdf).
