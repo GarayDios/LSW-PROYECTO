@@ -10,6 +10,27 @@ antiguos del ranking permanecen temporalmente como criterios de evaluación para
 no romper listas guardadas, contratos HTTP ni pruebas. No equivalen a los nuevos
 cores funcionales.
 
+## Controles de ranking y gráfica
+
+La sección «Evaluación del ranking» conserva los siete criterios anteriores y
+sus pesos. Se agrupan en núcleo cuantitativo (BSM, griegas y probabilidad),
+análisis técnico (volatilidad, tendencia y liquidez) y gestión de riesgos. Los
+selectores quedan dentro de «Ajustar criterios del ranking»; las listas guardadas
+conservan los identificadores y la configuración con que se generaron.
+
+Las capas del gráfico tienen un estado independiente. Ocultar medias, MACD,
+volumen o señales no excluye esos datos de los cálculos, de la regla de señales
+ni del ranking. Cambiar la regla de señales sí cambia el análisis histórico.
+Las bandas de volatilidad y el escenario −2σ son capas opcionales, inicialmente
+ocultas; el escenario no reemplaza los límites operativos de riesgo.
+
+La valoración y las sensibilidades del contrato se consultan en «Núcleo
+cuantitativo». En las velas pueden mostrarse su strike y equilibrio, además de
+los niveles de la estrategia. No se dibuja delta sobre la escala de precios.
+Los datos financieros y noticias siguen en el panel de la empresa y la IA en su
+panel propio. Esta separación conserva las fórmulas y dependencias existentes;
+no añade pesos de noticias o de IA a un ranking que todavía no los utilizaba.
+
 | Core funcional | Responsabilidad y base existente |
 |---|---|
 | Análisis Técnico | `src/cores/01-analisis-tecnico/`: indicadores, tendencia, volatilidad y volumen. |

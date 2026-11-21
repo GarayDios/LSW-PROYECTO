@@ -492,8 +492,10 @@ try{
     assert(await evaluate('document.documentElement.scrollWidth <= innerWidth+1'),'Mobile horizontal overflow');
     console.log('Screenshots saved. Mobile document fits viewport.');
   }else if(mode==='features'){
-    assert.equal(await evaluate(`document.querySelectorAll('.core-option input').length`),7);
-    assert.equal(await evaluate(`document.querySelectorAll('.core-chart-legend [data-core]').length`),7);
+    assert.equal(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input').length`),7);
+    assert.equal(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input:checked').length`),7);
+    assert(await evaluate(`!document.querySelector('.ranking-criteria').open`),'Ranking criteria begin collapsed');
+    assert(await evaluate(`!!document.querySelector('[data-analysis-indicator="sma20-50"]')&&!!document.querySelector('[data-technical-panel=rsi]')&&!!document.querySelector('[data-technical-panel=macd]')&&!!document.querySelector('[data-volume-bar]')`),'Technical layers are initially visible independently of ranking');
     assert.equal(await evaluate(`document.querySelectorAll('.strategy-comparison button').length`),4);
     assert.equal(await evaluate(`document.querySelectorAll('.top-opportunities button').length`),3);
     const initial=await evaluate(`document.querySelector('.top-opportunities').textContent`);
@@ -501,16 +503,23 @@ try{
     assert.notEqual(await evaluate(`document.querySelector('.top-opportunities').textContent`),initial,'Strategy updates preview without generating');
     await evaluate(`document.querySelector('.top-opportunities button').click()`);await delay(150);
     assert.equal(await evaluate(`document.querySelector('select[aria-label="Empresa del gráfico"]').value`),await evaluate(`document.querySelector('.top-opportunities strong').firstChild.textContent.trim()`));
-    await click('Limpiar');assert.equal(await evaluate(`document.querySelectorAll('.core-chart-legend [data-core]').length`),0);
-    assert.equal(await evaluate(`document.querySelectorAll('.market-chart [data-indicator]').length`),0);
+    await evaluate(`document.querySelector('.ranking-criteria').open=true`);
+    const chartBeforeRankingChanges=await evaluate(`document.querySelector('.chart-price-surface').innerHTML`);
+    await click('Limpiar');assert.equal(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input:checked').length`),0);
+    assert(await evaluate(`document.querySelector('.ranking-criteria-status').textContent.includes('0 de 7 criterios habilitados')`),'Clearing criteria updates ranking participation');
+    assert.equal(await evaluate(`document.querySelector('.chart-price-surface').innerHTML`),chartBeforeRankingChanges,'Clearing ranking criteria preserves chart layers and geometry');
     for(const [index,id] of ['bsm','greeks','probability','volatility','trend','liquidity','risk'].entries()){
-      await evaluate(`document.querySelectorAll('.core-option input')[${index}].click()`);await delay(100);
-      assert(await evaluate(`!!document.querySelector('.core-chart-legend [data-core="${id}"]')`),id+' shown');
-      assert.equal(await evaluate(`document.querySelectorAll('.core-chart-legend [data-core]').length`),1);
-      if(id!=='liquidity')assert(await evaluate(`document.querySelectorAll('.market-chart [data-indicator]').length>0`),id+' affects SVG');
-      await evaluate(`document.querySelectorAll('.core-option input')[${index}].click()`);await delay(100);
+      await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input')[${index}].click()`);await delay(100);
+      assert(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input')[${index}].checked`),id+' participates in ranking');
+      assert.equal(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input:checked').length`),1);
+      assert(await evaluate(`document.querySelector('.ranking-criteria-status').textContent.includes('1 de 7 criterios habilitados')`),id+' updates ranking status');
+      assert.equal(await evaluate(`document.querySelector('.chart-price-surface').innerHTML`),chartBeforeRankingChanges,id+' does not alter chart layers or geometry');
+      await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input')[${index}].click()`);await delay(100);
     }
     await click('Activar todos');
+    assert.equal(await evaluate(`document.querySelectorAll('.core-section .ranking-criterion input:checked').length`),7);
+    assert.equal(await evaluate(`document.querySelector('.chart-price-surface').innerHTML`),chartBeforeRankingChanges,'Restoring all ranking criteria preserves the chart');
+    await evaluate(`document.querySelector('.ranking-criteria').open=false`);
     await click('1D');assert(await evaluate(`document.querySelector('.history-summary').textContent.includes('78 velas')`),'One trading day has 78 five-minute bars');
     await click('1d');assert(await evaluate(`document.querySelector('.history-summary').textContent.includes('1 velas')`),'Daily aggregation');
     await input('Inicio de histórico de velas','2026-11-07');await input('Fin de histórico de velas','2026-11-08');
@@ -524,7 +533,7 @@ try{
     await click('Generar oportunidades');await until(`!!document.querySelector('.generated-badge')`);
     await screenshot('seven-cores-desktop.png',1440,1100);await screenshot('seven-cores-mobile.png',390,844);
     assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Feature mobile fits');
-    console.log('PASS: seven independent core indicators, live four-strategy comparison, top companies select chart, true interval counts, weekend empty state, CSV export, generation and mobile layout.');
+    console.log('PASS: seven ranking criteria independent of chart layers, live four-strategy comparison, top companies select chart, true interval counts, weekend empty state, CSV export, generation and mobile layout.');
   }else if(mode==='cycles'){
     async function select(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`));await delay(120);}
     await click('Simular ciclo');await until(`document.querySelector('.cycle-builder')`);await input('Fecha inicial del ciclo','2026-11-09');
@@ -570,11 +579,12 @@ try{
     await evaluate(`document.querySelector('.side-nav button').click()`);await until(`!!document.querySelector('.generate-button')`);
     await input('Fecha de fin de operación','2026-01-01');await click('Generar oportunidades');assert(await evaluate(`!!document.querySelector('.form-error')`),'Invalid dates rejected');
     await input('Fecha de fin de operación','2026-12-11');
-    await evaluate(`document.querySelectorAll('.core-option input').forEach(e=>{if(e.checked)e.click()})`);await delay(100);await click('Generar oportunidades');assert(await evaluate(`document.querySelector('.form-error').textContent.includes('núcleo')`),'No cores rejected');
-    await evaluate(`document.querySelectorAll('.core-option input').forEach(e=>{if(!e.checked)e.click()})`);await delay(100);await click('Generar oportunidades');
+    await evaluate(`document.querySelector('.ranking-criteria').open=true`);
+    await click('Limpiar');await click('Generar oportunidades');assert(await evaluate(`document.querySelector('.form-error').textContent.includes('Selecciona al menos un criterio del ranking con peso mayor que cero.')`),'No ranking criteria rejected');
+    await click('Activar todos');await evaluate(`document.querySelector('.ranking-criteria').open=false`);await click('Generar oportunidades');
     await screenshot('generated-list.png',1440,1000);
     await screenshot('mobile.png',390,844);assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Mobile fits');
-    console.log('PASS: generation, ranking, strategy change, search, empty state, buy call, sell put, review confirmation, order filter, reload persistence, date validation, core validation, mobile layout.');
+    console.log('PASS: generation, ranking, strategy change, search, empty state, buy call, sell put, review confirmation, order filter, reload persistence, date validation, ranking criteria validation, mobile layout.');
     if(process.env.QA_PWA==='1'){
       await until(`!!navigator.serviceWorker.controller`);const manifest=await send('Page.getAppManifest');assert(manifest.url.endsWith('/manifest.webmanifest'));assert.equal(manifest.errors.length,0,'Manifest parses');
       const targets=await send('Target.getTargets');const worker=targets.targetInfos.find(t=>t.type==='service_worker'&&t.url===baseURL+'/sw.js');assert(worker,'Service worker target exists');const attached=await send('Target.attachToTarget',{targetId:worker.targetId,flatten:true});await send('Network.enable',{},attached.sessionId);await send('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0},attached.sessionId);

@@ -1,0 +1,11 @@
+.ranking-criteria-status{font-size:12px;line-height:1.6;color:#aab9c7;margin:12px 0}
+.ranking-criteria{border-top:1px solid #303942;padding-top:12px}
+.ranking-criteria summary{font-size:14px;line-height:1.5;color:#dce5ed;cursor:pointer}
+.ranking-criteria p{font-size:12px;line-height:1.65;color:#9aaab9;margin:10px 0}
+.ranking-criteria fieldset{border:1px solid #303942;border-radius:6px;padding:10px;margin:16px 0;min-width:0}
+.ranking-criteria legend{font-size:14px;color:#dce5ed;padding:0 5px}
+.ranking-criterion{display:flex;align-items:flex-start;gap:8px;padding:10px 0;cursor:pointer;font-size:14px;line-height:1.5}
+.ranking-criterion input{flex:none;margin-top:4px;accent-color:#f3813b}
+.ranking-criterion>span{flex:1;min-width:0}
+.ranking-criterion small{display:block;font-size:12px;line-height:1.5;color:#9aaab9}
+.ranking-criterion .ranking-weight{flex:none;white-space:nowrap;font-size:11px}

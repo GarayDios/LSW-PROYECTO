@@ -5,7 +5,7 @@ export default function TechnicalIndicatorPanels({ points, rsi, macd, width }: {
 }) {
   if (!rsi && !macd) return null;
   const latest = points.filter(point => point.value).at(-1)?.value;
-  const right = width - 74;
+  const right = width - 88;
   const path = (value: (point: TechnicalIndicator) => number | null, y: (number: number) => number) => {
     let started = false;
     return points.map(point => {

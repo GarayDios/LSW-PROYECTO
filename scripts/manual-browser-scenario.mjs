@@ -21,9 +21,15 @@ export async function runManualScenario({evaluate,click,input,until,screenshot})
   await until(`Array.from(document.querySelectorAll('.market-chart [data-indicator]')).some(e=>e.textContent.includes('Soporte del profesor'))`);
   await click('Quitar');
   await until(`!document.querySelector('.market-chart').textContent.includes('Soporte del profesor')`);
-  await evaluate(`Array.from(document.querySelectorAll('.chart-user-controls label')).find(e=>e.textContent.includes('Indicadores de cores')).querySelector('input').click()`);
-  await until(`!document.querySelector('.market-chart [data-indicator=trend]')`);
-  await evaluate(`Array.from(document.querySelectorAll('.chart-user-controls label')).find(e=>e.textContent.includes('Indicadores de cores')).querySelector('input').click()`);
+  const rankingBeforeLayers=await evaluate(`Array.from(document.querySelectorAll('.ranking-criterion input')).map(input=>input.checked)`);
+  assert(await evaluate(`!document.querySelector('.market-chart [data-indicator="+1σ HV"]')&&!document.querySelector('.market-chart [data-indicator="−1σ HV"]')`),'Volatility bands begin hidden');
+  await click('Bandas de volatilidad');
+  await until(`!!document.querySelector('.market-chart [data-indicator="+1σ HV"]')&&!!document.querySelector('.market-chart [data-indicator="−1σ HV"]')`);
+  assert(await evaluate(`!!document.querySelector('[data-analysis-indicator="sma20-50"]')&&!!document.querySelector('[data-technical-panel=rsi]')&&!!document.querySelector('[data-technical-panel=macd]')`),'Adding volatility bands preserves independent technical layers');
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.ranking-criterion input')).map(input=>input.checked)`),rankingBeforeLayers,'Chart layers do not alter ranking selection');
+  await click('Bandas de volatilidad');
+  await until(`!document.querySelector('.market-chart [data-indicator="+1σ HV"]')&&!document.querySelector('.market-chart [data-indicator="−1σ HV"]')`);
+  assert(await evaluate(`!!document.querySelector('[data-analysis-indicator="sma20-50"]')&&!!document.querySelector('[data-technical-panel=rsi]')&&!!document.querySelector('[data-technical-panel=macd]')`),'Hiding volatility bands preserves independent technical layers');
   await click('Operar');await until(`!!document.querySelector('.ticket-dialog')`);
   await click('Operar en Alpaca Paper');await until(`!!document.querySelector('.f5-account')`);
   await evaluate(`window.__f5QA.statusFailure={code:'f5_runner_missing',message:'QA: falta configurar el servicio local.'}`);await click('Actualizar estado');
