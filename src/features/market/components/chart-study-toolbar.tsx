@@ -1,7 +1,7 @@
 "use client";
 
-export type ChartStudies = { averages: boolean; crosses: boolean; rsi: boolean; macd: boolean; supportResistance: boolean; gaps: boolean; volume: boolean; labels: boolean; events: boolean; volatilityBands: boolean; riskScenario: boolean };
-export const defaultChartStudies: ChartStudies = { averages: true, crosses: true, rsi: true, macd: true, supportResistance: true, gaps: true, volume: true, labels: true, events: true, volatilityBands: false, riskScenario: false };
+export type ChartStudies = { averages: boolean; crosses: boolean; rsi: boolean; macd: boolean; supportResistance: boolean; gaps: boolean; news: boolean; volume: boolean; labels: boolean; events: boolean; volatilityBands: boolean; riskScenario: boolean };
+export const defaultChartStudies: ChartStudies = { averages: true, crosses: true, rsi: true, macd: true, supportResistance: true, gaps: true, news: true, volume: true, labels: true, events: true, volatilityBands: false, riskScenario: false };
 
 export default function ChartStudyToolbar({ studies, onToggle }: { studies: ChartStudies; onToggle: (key: keyof ChartStudies) => void }) {
   const controls: { key: keyof ChartStudies; label: string; color: string; title: string }[] = [
@@ -11,6 +11,7 @@ export default function ChartStudyToolbar({ studies, onToggle }: { studies: Char
     { key: 'macd', label: 'MACD', color: '#79c9e5', title: 'Panel MACD12/26/9 y cruces de MACD con su señal.' },
     { key: 'supportResistance', label: 'Soportes / resistencias', color: '#41c9a6', title: 'Niveles confirmados y número de contactos.' },
     { key: 'gaps', label: 'Gaps', color: '#e2bf80', title: 'Apertura frente al cierre de la sesión anterior: variación de al menos ±0.5%, cuando ambos datos están disponibles.' },
+    { key: 'news', label: 'Noticias', color: '#d6b66c', title: 'Línea temporal de titulares de Alpaca, alineada con las fechas de la gráfica.' },
     { key: 'volume', label: 'Volumen', color: '#8cb9b0', title: 'Volumen de cada vela.' },
     { key: 'events', label: 'Rupturas', color: '#ef787b', title: 'Rupturas de soportes y resistencias previamente confirmados.' },
     { key: 'volatilityBands', label: 'Bandas de volatilidad', color: '#d6b66c', title: 'Bandas ±1σ con volatilidad histórica (HV) y el plazo de operación. En demostración usan la volatilidad supuesta.' },

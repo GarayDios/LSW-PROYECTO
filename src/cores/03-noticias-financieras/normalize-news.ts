@@ -9,10 +9,13 @@ export function normalizeFinancialNews(input: readonly unknown[], asOf: string):
     const publishedAt = timestamp(item.created_at);
     const updatedAt = timestamp(item.updated_at);
     // Headline can change on update: both dates must predate the decision.
-    if (!publishedAt || !updatedAt || Date.parse(publishedAt) > Date.parse(asOf) || Date.parse(updatedAt) > Date.parse(asOf) || typeof item.headline !== 'string') continue;
+    if (!publishedAt || !updatedAt || Date.parse(updatedAt) < Date.parse(publishedAt)
+      || Date.parse(publishedAt) > Date.parse(asOf) || Date.parse(updatedAt) > Date.parse(asOf)
+      || typeof item.headline !== 'string' || !item.headline.trim()
+      || !['string', 'number'].includes(typeof item.id) || !String(item.id).trim() || String(item.id).length > 128) continue;
     let url: string | null = null;
     try { const parsed = new URL(String(item.url)); if (parsed.protocol === 'https:') url = parsed.toString(); } catch { /* no unsafe links */ }
-    articles.push({ id: String(item.id), headline: item.headline.slice(0, 500), url, source: typeof item.source === 'string' ? item.source : 'Alpaca', publishedAt, availableAt: updatedAt });
+    articles.push({ id: String(item.id), headline: item.headline.trim().slice(0, 500), url, source: typeof item.source === 'string' && item.source.trim() ? item.source.trim().slice(0, 200) : 'Alpaca', publishedAt, availableAt: updatedAt });
   }
   return articles;
 }

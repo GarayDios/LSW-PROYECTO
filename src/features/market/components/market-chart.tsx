@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from "react";
 import { aggregateCandles, generateHistory, historyIssue, type Candle } from '../chart-history';
 import { blackScholes, profitMetrics, type OptionType } from '../../../cores/index';
 import type { AnalysisSignal, AnalysisResult } from '../../../cores/05-indicadores-y-senales/signals';
@@ -10,6 +10,9 @@ import { detectTechnicalEvents, detectOpeningGaps, type TechnicalEvent } from '.
 import { placeChartLabels } from '../chart-annotations';
 import ChartStudyToolbar, { defaultChartStudies, type ChartStudies } from './chart-study-toolbar';
 import TechnicalIndicatorPanels from './technical-indicator-panels';
+import { groupChartNews, newsSessionDate } from '../chart-news';
+import { ChartNewsRail, ChartNewsDetails } from './chart-news-timeline';
+import type { ChartNewsState } from '../hooks/use-chart-news';
 import './chart-studies.css';
 import type { MarketSource } from '../hooks/use-market-history';
 
@@ -41,6 +44,7 @@ type MarketChartProps = {
   studyHistory?: readonly Candle[];
   studies?: ChartStudies;
   onStudyToggle?: (key: keyof ChartStudies) => void;
+  news?: ChartNewsState;
 };
 
 const DEFAULT_WIDTH = 900;
@@ -77,8 +81,10 @@ export default function MarketChart(props: MarketChartProps) {
   return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, optionLevels, volatility, days, rate, dividendYield }} candles={candles} history={history} loadedHistory={loadedHistory} viewWindow={viewWindow} onViewWindow={setViewWindow}/>;
 }
 
-function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle }: MarketChartProps & {candles: Candle[]; history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
+function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news }: MarketChartProps & {candles: Candle[]; history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
   const [hovered, setHovered] = useState<number | null>(null);
+  const [selectedNews, setSelectedNews] = useState<string | null>(null);
+  const newsDetailsId = useId();
   const container = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_WIDTH);
   useEffect(() => {
@@ -87,6 +93,12 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
     observer.observe(container.current); return () => observer.disconnect();
   }, []);
   const WIDTH = Math.max(720, viewportWidth), RIGHT = WIDTH - 88;
+  const newsHeight = studies.news ? 64 : 0, volumeBottom = VOLUME_BOTTOM + newsHeight, height = HEIGHT + newsHeight;
+  const newsSnapshot = source === 'alpaca' && news?.snapshot?.symbol === symbol ? news.snapshot : null;
+  const newsViewStart = viewWindow === 'all' ? startDate! : newsSessionDate(history[0].time);
+  const newsGroups = useMemo(() => studies.news && newsSnapshot ? groupChartNews({ articles: newsSnapshot.news.articles,
+    history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: endDate!, left: LEFT, right: RIGHT }) : [],
+    [studies.news, newsSnapshot, history, interval, newsViewStart, endDate, RIGHT]);
   const technicalBars = studyHistory ?? loadedHistory;
   const technical = useMemo(() => technicalAnalysis?.indicators ?? calculateTechnicalIndicators(technicalBars), [technicalAnalysis, technicalBars]);
   const structure = useMemo(() => technicalAnalysis?.structure ?? analyzeSupportResistance(technicalBars), [technicalAnalysis, technicalBars]);
@@ -241,12 +253,13 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         {studies.averages && <><span><i style={{background:'#e2bf80'}}/>Media 20</span><span><i style={{background:'#d8e2ee'}}/>Media 50</span></>}
         {studies.crosses && <span>◇ Cruce 20/50</span>}{studies.macd && <span>◇ MACD</span>}
         {studies.gaps && <span>GAP · apertura vs. cierre anterior · ≥ 0.5%</span>}
+        {studies.news && <span style={{color:'#d6b66c'}}><i/>Noticias · N / cantidad de titulares</span>}
       </div>
       {viewportWidth < 720 && <p className="chart-scroll-hint">Desliza la gráfica horizontalmente para explorar las velas y los indicadores.</p>}
       <div className="chart-price-surface" role="region" aria-label="Gráfica de precio e indicadores" tabIndex={0}>
       <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        role="img"
+        viewBox={`0 0 ${WIDTH} ${height}`}
+        role="group"
         aria-label={`Gráfico ${chartType === "line" ? "de línea" : "de velas"} de ${symbol}. ${sourceLabel}. Vista ${formatTime(history[0].time,false)} a ${formatTime(history.at(-1)!.time,false)}, rango cargado ${range}, intervalo ${interval}. Usa las flechas para explorar las velas.`}
         tabIndex={0}
         onPointerMove={onPointerMove}
@@ -263,7 +276,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
       >
         <title>{`${symbol} · Histórico de velas ${source === 'demo' ? 'simulado' : 'real'}`}</title>
         <desc>{source === 'demo' ? 'Serie ilustrativa y reproducible, no corresponde a cotizaciones de mercado.' : 'Velas históricas del proveedor seleccionado; la cobertura y el feed se indican sobre la gráfica.'} Velas verdes para alzas y rojas para bajas. Las flechas marcan cruces históricos, no predicciones futuras.</desc>
-        <rect x="0" y="0" width={WIDTH} height={HEIGHT} fill="transparent" />
+        <rect x="0" y="0" width={WIDTH} height={height} fill="transparent" />
         {validationX !== null && <g data-validation-region="true"><rect x={validationX} y={TOP} width={Math.max(0,RIGHT-validationX)} height={BOTTOM-TOP} fill="#638bcc" opacity=".07"/><line x1={validationX} x2={validationX} y1={TOP} y2={BOTTOM} stroke="#638bcc" strokeDasharray="4 4" opacity=".6"/></g>}
         {grid.map((value, i) => (
           <g key={i}>
@@ -273,16 +286,16 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         ))}
         {ticks.map(i => (
           <g key={i}>
-            <line x1={x(i)} x2={x(i)} y1={TOP} y2={VOLUME_BOTTOM} stroke="#24272b" strokeWidth="0.7" strokeDasharray="2 5" opacity="0.65" />
-            <text x={x(i)} y="430" textAnchor={i === 0 ? "start" : i === candles.length - 1 ? "end" : "middle"} fill="#929ba6" fontSize="12">{formatTime(candles[i].time, intraday)}</text>
+            <line x1={x(i)} x2={x(i)} y1={TOP} y2={volumeBottom} stroke="#24272b" strokeWidth="0.7" strokeDasharray="2 5" opacity="0.65" />
+            <text x={x(i)} y={height - 10} textAnchor={i === 0 ? "start" : i === candles.length - 1 ? "end" : "middle"} fill="#929ba6" fontSize="12">{formatTime(candles[i].time, intraday)}</text>
           </g>
         ))}
         {studies.volume && candles.map((candle, i) => {
           const color = candle.close >= candle.open ? UP : DOWN;
           const volumeHeight = candle.volume / maxVolume * 42;
-          return <rect key={i} data-volume-bar="true" x={x(i) - candleWidth / 2} y={VOLUME_BOTTOM - volumeHeight} width={candleWidth} height={volumeHeight} fill={color} opacity="0.5" rx="0.5" />;
+          return <rect key={i} data-volume-bar="true" x={x(i) - candleWidth / 2} y={volumeBottom - volumeHeight} width={candleWidth} height={volumeHeight} fill={color} opacity="0.5" rx="0.5" />;
         })}
-        {studies.volume && <text x={LEFT} y={BOTTOM + 16} fill="#929ba6" fontSize="11">VOL</text>}
+        {studies.volume && <text x={LEFT} y={BOTTOM + newsHeight + 16} fill="#929ba6" fontSize="11">VOL</text>}
         {eventMarkers.filter(marker => marker.event.kind === 'gap').map(({id, event, bucket}) => event.previousClose !== undefined && <g key={`gap-${id}`} data-gap-zone="true"><title>{event.reason}</title><rect x={Math.max(LEFT, x(bucket) - step / 2)} y={Math.min(y(event.price), y(event.previousClose))} width={Math.max(4, step)} height={Math.max(1, Math.abs(y(event.price) - y(event.previousClose)))} fill={event.direction === 'up' ? UP : DOWN} opacity=".14"/><line x1={x(bucket)} x2={x(bucket)} y1={y(event.price)} y2={y(event.previousClose)} stroke={event.direction === 'up' ? UP : DOWN} strokeDasharray="2 2"/></g>)}
         {chartType === "line" ? (
           <path d={linePath} fill="none" stroke={UP} strokeWidth="1.8" strokeLinejoin="round" />
@@ -312,7 +325,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         {priceBadges.filter(badge => studies.labels || badge.id === 'last').map(badge => <g key={badge.id} data-price-badge={badge.id}><title>{badge.id === 'last' ? 'Último precio' : levels[Number(badge.id.split(':')[1])].label} · {formatPrice(badge.value)}</title><line x1={RIGHT} x2={RIGHT + 5} y1={y(badge.value)} y2={badgeY.get(badge.id)} stroke={badge.color}/><rect x={RIGHT + 5} y={badgeY.get(badge.id)! - 10} width="79" height="21" rx="3" fill={badge.color}/><text x={RIGHT + 44} y={badgeY.get(badge.id)! + 4} textAnchor="middle" fill="#10171b" fontSize="12" fontWeight="700" fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace">{formatPrice(badge.value)}</text></g>)}
         {current && index !== null && (
           <g pointerEvents="none">
-            <line x1={x(index)} x2={x(index)} y1={TOP} y2={VOLUME_BOTTOM} stroke="#8c939c" strokeWidth="0.8" strokeDasharray="3 3" />
+            <line x1={x(index)} x2={x(index)} y1={TOP} y2={volumeBottom} stroke="#8c939c" strokeWidth="0.8" strokeDasharray="3 3" />
             <line x1={LEFT} x2={RIGHT} y1={y(current.close)} y2={y(current.close)} stroke="#8c939c" strokeWidth="0.8" strokeDasharray="3 3" />
             <circle cx={x(index)} cy={y(current.close)} r="3" fill={ORANGE} stroke="#111315" strokeWidth="1.5" />
             {WIDTH >= 600 && <rect x={12} y={2} width="465" height="27" rx="4" fill="#1a1d21" stroke="#33373d" strokeWidth="0.7" />}
@@ -325,9 +338,11 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
             </text>}
           </g>
         )}
+        {studies.news && <ChartNewsRail groups={newsGroups} left={LEFT} right={RIGHT} y={BOTTOM + 35} selectedId={selectedNews} detailsId={newsDetailsId} onSelect={setSelectedNews} demo={source === 'demo'}/>}
       </svg>
       <TechnicalIndicatorPanels points={technicalPoints} rsi={studies.rsi} macd={studies.macd} width={WIDTH}/>
       </div>
+      {studies.news && <ChartNewsDetails state={news} groups={newsGroups} selectedId={selectedNews} id={newsDetailsId} demo={source === 'demo'}/>}
       <details className="chart-marker-list chart-event-summary"><summary>Eventos técnicos de la vista · {visibleEvents.length}</summary>
         <p>Los rombos describen eventos; las flechas de entrada/salida dependen de la regla seleccionada. En vistas agrupadas, ×N indica varios eventos del mismo tipo. Las etiquetas se distribuyen según el espacio disponible.</p>
         {studies.gaps && <p>GAP = (apertura / cierre de la sesión anterior − 1) × 100. Se muestran cambios de al menos 0.5%; se omiten comparaciones con sesiones faltantes o cierres intradía incompletos.</p>}

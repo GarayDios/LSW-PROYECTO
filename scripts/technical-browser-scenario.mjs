@@ -42,6 +42,7 @@ export function installTechnicalQA(fundamentals) {
     }
     if (url.pathname === '/api/broker/status') return Response.json({ alpaca: { configured: false, ownerAuthorized: false, mode: 'paper' }, webull: { supported: false }, automation: { configured: false, enabled: false }, identity: null });
     if (url.pathname === '/api/automation') return Response.json({ executions: [], positions: [], events: [], plans: [], configured: false, enabled: false, available: false });
+    if (url.pathname === '/api/research/news') return Response.json({ symbol: url.searchParams.get('symbol'), start: url.searchParams.get('start'), end: url.searchParams.get('end'), asOf: url.searchParams.get('cutoff') || new Date().toISOString(), nextPageToken: null, news: { articles: [], complete: true, status: { source: 'QA: noticias simuladas', status: 'ready', message: 'QA: sin titulares' }, warnings: [] } });
     if (!['/api/research/company', '/api/market/history'].includes(url.pathname)) return original(input, init);
     const response = await original(input, init), body = await response.json();
     if (!response.ok) return Response.json(body, { status: response.status });

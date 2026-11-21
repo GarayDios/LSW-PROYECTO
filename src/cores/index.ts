@@ -1,6 +1,8 @@
 export { blackScholes } from './nucleo-cuantitativo/bsm.ts';
 export { normalCdf } from './nucleo-cuantitativo/math.ts';
 export { profitMetrics } from './nucleo-cuantitativo/probability.ts';
+export { simulateMonteCarlo, validateMonteCarlo } from './nucleo-cuantitativo/monte-carlo.ts';
+export type { MonteCarloRequest, MonteCarloResult, MonteCarloLeg, MonteCarloSummary } from './nucleo-cuantitativo/monte-carlo.ts';
 export { rankCompanies } from './evaluacion/ranking.ts';
 export { CORE_IDS, QUANTITATIVE_CRITERION_IDS, USER_SELECTABLE_CORE_IDS, AUTO_CORE_IDS, effectiveCores } from './compartido/types.ts';
 export type { CoreId, QuantitativeCriterionId, UserSelectableCoreId, AutoCoreId, StrategyId, OptionType, OptionInputs, OptionValue, ProfitInputs, RankedCompany } from './compartido/types.ts';

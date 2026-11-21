@@ -120,6 +120,12 @@ export type ResearchNews = {
   warnings: string[];
 };
 
+/** A chart query has its own date range and a fixed cutoff across pagination. */
+export type NewsTimelinePage = {
+  symbol: string; start: string; end: string; asOf: string;
+  news: ResearchNews; nextPageToken: string | null;
+};
+
 export type CompanyResearch = {
   symbol: string;
   /** Decision cutoff. Inputs published after this instant are excluded. */

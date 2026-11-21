@@ -8,6 +8,8 @@ cores pueden utilizar sus cálculos, pero no es uno de esos siete módulos».
 - `probability.ts`: equilibrio y probabilidad teórica de beneficio de una pierna.
 - `binomial.ts`: valoración binomial y aproximación al ejercicio americano.
 - `implied-volatility.ts`: volatilidad implícita a partir de una prima válida.
+- `monte-carlo.ts`: trayectorias GBM reproducibles, valoración europea, distribución
+  de resultados y cobertura delta con costes. [Modelo y alcance](../../../docs/arquitectura/monte-carlo.md).
 - `math.ts` y `validation.ts`: funciones matemáticas y validación de entradas.
 
 Las sensibilidades y probabilidades dependen del modelo; no son predicciones

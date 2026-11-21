@@ -1,4 +1,6 @@
 import {spawn} from 'node:child_process';
+import { runMonteCarloScenario } from './monte-carlo-browser-scenario.mjs';
+import { installNewsQA, runNewsScenario } from './news-browser-scenario.mjs';
 import {mkdir,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -85,7 +87,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
   }
-  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
+  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='news'){
     // A tagged provider fixture checks the real chart and controls without
     // claiming a live Alpaca connection or requiring trading credentials.
     function installHistoryQA(){
@@ -160,7 +162,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
-  if(mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
+  if(mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='news'){
     function installStrategyQA(automatic=false){
       const qa=window.__strategyQA={fail:false};
       const originalFetch=window.fetch.bind(window);
@@ -181,9 +183,9 @@ try{
           macro:{treasury3MonthPercent:v(4),riskFreeRate:v(.04),inflationYearOverYear:v(.02),realGdpGrowth:v(.03),status,warnings:[]},news:{articles:[],complete:true,status,warnings:[]},quality:{historicalOnly:false,missing:automatic?[]:['dividendYield'],stale:[],sources:[status]},warnings:['QA: no son datos de mercado reales']};window.__deliveryResearch=research;return Response.json({research});
       };
     }
-    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'});`});
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='news'});`});
   }
-  if(mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'){
+  if(mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='news'){
     function installDeliveryQA(){
       const qa=window.__delivery={phase:'submitted',mutations:[],rankingRequests:[]};
       const originalFetch=window.fetch.bind(window);
@@ -218,9 +220,10 @@ try{
   if(mode==='intelligence'){
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installIntelligenceQA.toString()})();`});
   }
-  if(mode==='technical'){
+  if(mode==='technical'||mode==='monte-carlo'||mode==='news'){
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installTechnicalQA.toString()})(${JSON.stringify(technicalFundamentalFixture())});`});
   }
+  if(mode==='news')await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installNewsQA.toString()})();`});
   await send('Page.navigate',{url:baseURL+'/'});
   if(mode==='persistence'){
     await until(`!!document.querySelector('.terminal-app[aria-busy="true"][inert]')`);
@@ -233,7 +236,11 @@ try{
   }
   if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.chart-panel') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
-  if(mode==='technical'){
+  if(mode==='news'){
+    await runNewsScenario({evaluate,click,until,screenshot});
+  }else if(mode==='monte-carlo'){
+    await runMonteCarloScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='technical'){
     await runTechnicalScenario({evaluate,click,input,until,screenshot});
   }else if(mode==='intelligence'){
     await runIntelligenceScenario({evaluate,click,input,until,screenshot});

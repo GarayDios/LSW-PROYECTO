@@ -160,29 +160,44 @@ export function missingNews(): ResearchNews {
   return { articles: [], complete: false, status: { source: 'Alpaca noticias', status: 'missing_config', message: 'Configura las claves Alpaca Paper en el servidor.' }, warnings: [] };
 }
 
-export async function fetchAlpacaNews(config: AlpacaResearchConfig | undefined, symbol: string, asOf: string, fetcher: ResearchFetch = fetch): Promise<ResearchNews> {
+export type NewsRange = { start?: string; pageToken?: string };
+export async function fetchAlpacaNews(config: AlpacaResearchConfig | undefined, symbol: string, asOf: string, fetcher: ResearchFetch = fetch, range: NewsRange = {}): Promise<ResearchNews & { nextPageToken?: string | null }> {
   validateResearchRequest(symbol, asOf);
+  const start = range.start ?? new Date(Date.parse(asOf) - 7 * DAY).toISOString();
+  if (!Number.isFinite(Date.parse(start)) || Date.parse(start) > Date.parse(asOf)
+    || range.pageToken !== undefined && nextToken(range.pageToken) !== range.pageToken) throw new RangeError('El rango o la continuación de noticias no es válido.');
   if (!config?.apiKey || !config.secretKey) return missingNews();
+  const articles: ResearchNews['articles'] = [];
+  let token: string | null = range.pageToken ?? null;
+  const collected = () => [...new Map(articles.map(item => [item.id, item])).values()]
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id));
   try {
-    const articles: ResearchNews['articles'] = [];
     const seen = new Set<string>();
-    let token: string | null = null;
+    if (token) seen.add(token);
     let complete = false;
     const maxPages = pageLimit(config.maxPages);
     for (let page = 0; page < maxPages; page++) {
       const url = new URL('/v1beta1/news', DATA);
-      Object.entries({ symbols: symbol, start: new Date(Date.parse(asOf) - 7 * DAY).toISOString(), end: asOf, sort: 'desc', limit: '50', include_content: 'false' }).forEach(([name, value]) => url.searchParams.set(name, value));
+      Object.entries({ symbols: symbol, start, end: asOf, sort: 'desc', limit: '50', include_content: 'false' }).forEach(([name, value]) => url.searchParams.set(name, value));
       if (token) url.searchParams.set('page_token', token);
       const body = record(await researchJson(url, headers(config), fetcher));
       if (!Array.isArray(body.news)) throw new Error('invalid news');
-      articles.push(...normalizeFinancialNews(body.news, asOf));
-      token = nextToken(body.next_page_token);
-      if (!token) { complete = true; break; }
-      if (seen.has(token)) throw new Error('repeated token');
-      seen.add(token);
+      const next = nextToken(body.next_page_token);
+      if (body.next_page_token != null && body.next_page_token !== '' && !next) throw new Error('invalid news cursor');
+      if (next && seen.has(next)) throw new Error('repeated news cursor');
+      const matching = body.news.filter(raw => { const item = record(raw); return !Array.isArray(item.symbols) || item.symbols.includes(symbol); });
+      articles.push(...normalizeFinancialNews(matching, asOf).filter(item => Date.parse(item.publishedAt) >= Date.parse(start)));
+      token = next;
+      if (!next) { complete = true; break; }
+      seen.add(next);
     }
-    return { articles: [...new Map(articles.map(item => [item.id, item])).values()], complete,
-      status: { source: 'Alpaca noticias', status: complete ? 'ready' : 'partial', message: 'Titulares de los siete días anteriores al corte; sin puntuación automática de sentimiento.' },
-      warnings: complete ? [] : [`Noticias parciales: límite de ${maxPages} páginas.`] };
-  } catch (error) { return { articles: [], complete: false, status: providerFailure('Alpaca noticias', error), warnings: [] }; }
+    return { articles: collected(), complete, nextPageToken: token,
+      status: { source: 'Alpaca noticias', status: complete ? 'ready' : 'partial', message: `${range.start ? 'Titulares del rango solicitado' : 'Titulares de los siete días anteriores al corte'}; ${complete ? 'consulta completada' : 'hay páginas pendientes'}. Sin puntuación automática de sentimiento.` },
+      warnings: complete ? [] : [`Noticias parciales: se consultaron ${maxPages} páginas. Puedes continuar cargando titulares anteriores.`] };
+  } catch (error) {
+    const failure = providerFailure('Alpaca noticias', error);
+    return { articles: collected(), complete: false, nextPageToken: articles.length ? token : null,
+      status: articles.length ? { ...failure, status: 'partial', message: 'Consulta interrumpida: se conservan los titulares recibidos. Reintenta para continuar.' } : failure,
+      warnings: articles.length ? [failure.message] : [] };
+  }
 }
