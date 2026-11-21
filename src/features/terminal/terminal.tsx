@@ -27,7 +27,7 @@ import OrderTicket from "../orders/order-ticket";
 import { companies, type Company } from "../market/data";
 import { cores } from "../../cores/evaluacion/catalog";
 import { strategies } from "../strategies/catalog";
-import { blackScholes, CORE_IDS, rankCompanies, type CoreId, type StrategyId } from "../../cores/index";
+import { blackScholes, CORE_IDS, USER_SELECTABLE_CORE_IDS, effectiveCores, rankCompanies, type CoreId, type StrategyId } from "../../cores/index";
 import { createDefaultState, type Watchlist } from "../../db/state";
 import { useTerminalPersistence } from "../persistence/use-terminal-persistence";
 import StorageStatus from "../persistence/storage-status";
@@ -82,7 +82,7 @@ export default function Terminal() {
   const { lists, setLists, orders, setOrders, cycles, setCycles, rate, setRate, ready } = persistence;
   const [view,setView]=useState<View>("explorer");
   const [selectedSymbol,setSelectedSymbol]=useState("NVDA");
-  const [selectedCores,setSelectedCores]=useState<CoreId[]>([...CORE_IDS]);
+  const [selectedCores,setSelectedCores]=useState<CoreId[]>([...USER_SELECTABLE_CORE_IDS]);
   const [strategy,setStrategy]=useState<StrategyId>("wheel");
   const [initialDay] = useState(() => new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()));
   const [operationStart,setOperationStart]=useState(initialDay);
@@ -176,7 +176,7 @@ export default function Terminal() {
     if(startTime<"09:30"||endTime>"16:00")return "Usa un horario entre 09:30 y 16:00, hora de Nueva York.";
     const historicalIssue=historyIssue(historyStart,historyEnd);if(historicalIssue)return historicalIssue;
     if(historyEnd>operationStart)return "El histórico debe terminar a más tardar al inicio de operación para evitar datos futuros.";
-    if(!activeCoreWeight(evaluationTuning(analysisSettings.tuning),selectedCores))return "Selecciona al menos un criterio del ranking con peso mayor que cero.";return "";
+    if(!activeCoreWeight(evaluationTuning(analysisSettings.tuning),effectiveCores(selectedCores)))return "Selecciona al menos un criterio del ranking con peso mayor que cero.";return "";
   }
   async function generate(){
     const issue=validateConfig();setError(issue);if(issue)return;setGenerating(true);

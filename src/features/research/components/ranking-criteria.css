@@ -9,3 +9,5 @@
 .ranking-criterion>span{flex:1;min-width:0}
 .ranking-criterion small{display:block;font-size:12px;line-height:1.5;color:#9aaab9}
 .ranking-criterion .ranking-weight{flex:none;white-space:nowrap;font-size:11px}
+.ranking-criterion-auto{opacity:.65;cursor:default}
+.ranking-criteria fieldset[disabled]{opacity:.7;border-style:dashed}

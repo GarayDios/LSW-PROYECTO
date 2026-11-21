@@ -5,6 +5,19 @@ export const QUANTITATIVE_CRITERION_IDS: readonly QuantitativeCriterionId[] = ['
 /** Historical API/storage name. These are criteria, not the seven functional cores. */
 export type CoreId = QuantitativeCriterionId;
 export const CORE_IDS = QUANTITATIVE_CRITERION_IDS;
+
+/** Cores the user can toggle on/off in the UI (quantitative nucleus). */
+export type UserSelectableCoreId = 'bsm' | 'greeks' | 'probability';
+export const USER_SELECTABLE_CORE_IDS: readonly UserSelectableCoreId[] = ['bsm', 'greeks', 'probability'];
+
+/** Cores that always participate in the ranking automatically — never shown as toggles. */
+export type AutoCoreId = 'volatility' | 'trend' | 'liquidity' | 'risk';
+export const AUTO_CORE_IDS: readonly AutoCoreId[] = ['volatility', 'trend', 'liquidity', 'risk'];
+
+/** Merges user-selected cores with the always-on auto cores into a full CoreId list. */
+export function effectiveCores(userSelected: readonly CoreId[]): CoreId[] {
+  return [...new Set([...userSelected.filter(id => USER_SELECTABLE_CORE_IDS.includes(id as UserSelectableCoreId)), ...AUTO_CORE_IDS])];
+}
 export type StrategyId = 'wheel' | 'pmcc' | 'backspread' | 'gamma';
 export type OptionType = 'call' | 'put';
 

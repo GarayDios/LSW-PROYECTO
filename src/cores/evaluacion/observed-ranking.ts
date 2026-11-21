@@ -1,5 +1,5 @@
 import { analyzeStrategy, selectStrategyLegs, type AnalysisPolicy, type StrategyAnalysis } from './strategy-analysis.ts';
-import { CORE_IDS, type CoreId, type OptionInputs, type StrategyId } from '../compartido/types.ts';
+import { CORE_IDS, effectiveCores, type CoreId, type OptionInputs, type StrategyId } from '../compartido/types.ts';
 import { knownBy, missingVariable, type CompanyResearch, type CoreEvidence, type ObservedCoreResult, type ObservedOptionContract, type ResearchVariable } from '../compartido/research-model.ts';
 import { equityTerms, valuationExpiry,modelDividendYield,cashDividendPv } from '../../features/research/contract-terms.ts';
 import { activeCoreWeight, coreWeight, evaluationTuning } from './evaluation-policy.ts';

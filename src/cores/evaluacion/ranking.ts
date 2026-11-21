@@ -6,7 +6,7 @@ import { clamp, proximity } from '../nucleo-cuantitativo/math.ts';
 import { profitMetrics } from '../nucleo-cuantitativo/probability.ts';
 import { riskCore } from '../06-gestion-de-riesgos/scoring.ts';
 import { trendCore } from '../01-analisis-tecnico/trend.ts';
-import { CORE_IDS, type CoreContext, type CoreId, type OptionInputs, type RankedCompany, type ScreeningCore, type StrategyId } from '../compartido/types.ts';
+import { CORE_IDS, effectiveCores, type CoreContext, type CoreId, type OptionInputs, type RankedCompany, type ScreeningCore, type StrategyId } from '../compartido/types.ts';
 import { volatilityCore } from '../01-analisis-tecnico/volatility.ts';
 
 const screeningCores: Record<CoreId, ScreeningCore> = {
