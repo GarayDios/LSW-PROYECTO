@@ -88,3 +88,41 @@ test('rejects invalid numbers, empty positions, malformed legs and oversized wor
     { legs: [{ ...base.legs[0], quantity: .5 }] },
   ]) assert.throws(() => validateMonteCarlo({ ...base, ...patch }), RangeError);
 });
+
+test('pricing accuracy and sampling error remain stable across seeds and larger samples', () => {
+  const exact = blackScholes(optionInput(base)).price;
+  let smallSquaredError = 0, largeSquaredError = 0;
+  for (const seed of [7, 42, 123, 2026, 65535]) {
+    const small = simulateMonteCarlo({ ...base, paths: 1000, seed });
+    const large = simulateMonteCarlo({ ...base, paths: 16000, seed });
+    smallSquaredError += (small.fairValue.mean - exact) ** 2;
+    largeSquaredError += (large.fairValue.mean - exact) ** 2;
+    assert.ok(Math.abs(large.fairValue.mean - exact) < 4 * large.fairValue.standardError,
+      `seed ${seed}: pricing error exceeds four standard errors`);
+    // Sixteen times the paths should approximately quarter sampling error.
+    const ratio = large.fairValue.standardError / small.fairValue.standardError;
+    assert.ok(ratio > .2 && ratio < .3, `seed ${seed}: standard error ratio ${ratio}`);
+  }
+  // Assess aggregate accuracy: an individual seed need not improve monotonically.
+  assert.ok(largeSquaredError < smallSquaredError);
+});
+
+test('tail risk reports known expiry losses including fees and respects a funded long-call loss bound', () => {
+  const expired = simulateMonteCarlo({ ...base, days: 0, spot: 90, feePerContract: .65,
+    legs: [{ ...base.legs[0], units: 100 }] });
+  assert.equal(expired.pnl.mean, -1000.65);
+  assert.equal(expired.pnl.lossVaR95, 1000.65);
+  assert.ok(Math.abs(expired.pnl.expectedShortfall95 - 1000.65) < 1e-8);
+  assert.equal(expired.pnl.probabilityOfLoss, 1);
+
+  for (const volatility of [.1, .3, .8]) {
+    const request = { ...base, volatility, feePerContract: .65,
+      legs: [{ ...base.legs[0], units: 100 }] };
+    const result = simulateMonteCarlo(request);
+    const maximumLoss = result.initialDebit * Math.exp(request.rate * request.days / 365);
+    assert.ok(result.pnl.lossVaR95 >= 0);
+    assert.ok(result.pnl.expectedShortfall95 >= result.pnl.lossVaR95 - 1e-8);
+    assert.ok(result.pnl.expectedShortfall95 <= maximumLoss + 1e-8);
+    assert.ok(result.pnl.p05 >= -maximumLoss - 1e-8);
+  }
+});

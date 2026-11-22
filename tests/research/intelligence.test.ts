@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { forecastMarket, type MarketForecast } from '../../src/cores/02-inteligencia-artificial/forecast.ts';
+import { evaluateForecastHistory } from '../../src/cores/02-inteligencia-artificial/evaluation.ts';
 import { recommendForPreferences } from '../../src/cores/02-inteligencia-artificial/recommendations.ts';
 import { defaultInvestorPreferences, investorPreferencesSchema, type InvestorPreferences } from '../../src/cores/02-inteligencia-artificial/preferences.ts';
 import { defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
@@ -64,6 +65,37 @@ test('long horizon needs more independent history; validation remains bounded fo
   const full = forecastMarket({ symbol: 'XYZ', bars, asOf, source: 'fixture', horizonSessions: 5 });
   assert.equal(full.status, 'available');
   assert.ok(full.validation.periods.length <= 60);
+});
+
+test('evaluation reports reproduce production errors and yearly groups without future contamination', () => {
+  const bars = history(1000);
+  const input = { symbol: 'XYZ', bars: bars.slice(0, 851),
+    asOf: new Date(bars[850].time + 31 * 3600000).toISOString(), source: 'synthetic test only', horizonSessions: 20 as const };
+  const report = evaluateForecastHistory(input);
+  const forecast = forecastMarket(input);
+  assert.equal(report.metrics.modelMae, forecast.validation.modelMae);
+  assert.equal(report.metrics.noChangeMae, forecast.validation.noChangeMae);
+  assert.equal(report.metrics.historicalMeanMae, forecast.validation.historicalMeanMae);
+  assert.equal(report.passed, forecast.validation.passed);
+  assert.equal(report.byOutcomeYear.reduce((sum, row) => sum + row.periods, 0), report.metrics.periods);
+  const weightedError = report.byOutcomeYear.reduce((sum, row) => sum + row.modelMae! * row.periods, 0) / report.metrics.periods;
+  assert.ok(Math.abs(weightedError - report.metrics.modelMae!) < 1e-12);
+  assert.deepEqual(evaluateForecastHistory({ ...input, bars }), report);
+});
+
+test('evaluation keeps missing evidence and zero-error baselines distinct from a passing model', () => {
+  const bars = history(1000).map(bar => ({ ...bar, open: 100, high: 100, low: 100, close: 100 }));
+  const input = { symbol: 'XYZ', bars, asOf: new Date(bars.at(-1)!.time + 31 * 3600000).toISOString(),
+    source: 'synthetic test only', horizonSessions: 5 as const };
+  const flat = evaluateForecastHistory(input);
+  assert.equal(flat.metrics.modelMae, 0);
+  assert.equal(flat.metrics.improvementVsNoChange, null);
+  assert.equal(flat.passed, false);
+  const missing = evaluateForecastHistory({ ...input, bars: bars.slice(-5) });
+  assert.equal(missing.status, 'insufficient');
+  assert.equal(missing.metrics.modelMae, null);
+  assert.equal(missing.firstDecisionAt, null);
+  assert.equal(missing.passed, false);
 });
 
 const asOf = '2026-11-17T16:00:00.000Z';
