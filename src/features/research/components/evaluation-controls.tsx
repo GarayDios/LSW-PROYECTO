@@ -29,16 +29,16 @@ export default function EvaluationControls({settings,onSettings}:{settings:Analy
     const rawScenarios=String(data.get('scenarioChanges')??'').split(',');
     const parsed=evaluationTuningSchema.safeParse({...Object.fromEntries(fields.map(([name])=>[name,number(name)])),
       scenarioChanges:rawScenarios.map(v=>v.trim()===''?NaN:Number(v)/100),
-      coreWeights:Object.fromEntries(CORE_IDS.map(id=>[id,number(`weight-${id}`)]))});
+      coreWeights:Object.fromEntries(CORE_IDS.map(id=>[id,settings.scanner?(tuning.coreWeights[id]??1):number(`weight-${id}`)]))});
     if(!parsed.success){setError('Revisa los límites, escenarios únicos y pesos: plazo y spread no pueden ser ambos cero.');return;}
     onSettings({...settings,tuning:parsed.data});setError('');
   }
-  return <details className="evaluation-controls"><summary>Parámetros y pesos del análisis</summary>
-    <p>Son decisiones del modelo, no parámetros óptimos demostrados. Se guardan con cada lista. Un peso de core igual a cero lo excluye; los datos faltantes de un core con peso positivo siguen bloqueando el total.</p>
+  return <details className="evaluation-controls"><summary>{settings.scanner ? 'Parámetros del modelo' : 'Parámetros y pesos del análisis'}</summary>
+    <p>Son decisiones del modelo, no parámetros óptimos demostrados. Se guardan con cada lista. {settings.scanner ? 'Selecciona los cores en «Análisis que participan». Los cores disponibles participan según sus pesos.' : 'Un peso de core igual a cero lo excluye; los datos faltantes de un core con peso positivo siguen bloqueando el total.'}</p>
     <form key={JSON.stringify(tuning)} onSubmit={apply}>
       <div className="comparison-settings">{fields.map(([name,label,min,max,step])=><label key={name}>{label}<input name={name} type="number" min={min} max={max} step={step} required defaultValue={tuning[name]}/></label>)}</div>
       <label>Escenarios del subyacente (% separados por comas)<input name="scenarioChanges" type="text" required defaultValue={tuning.scenarioChanges.map(v=>v*100).join(', ')} /></label>
-      <div className="comparison-settings">{CORE_IDS.map(id=><label key={id}>Peso: {id}<input name={`weight-${id}`} type="number" min="0" max="100" step="0.1" required defaultValue={tuning.coreWeights[id]??1}/></label>)}</div>
+      {!settings.scanner&&<div className="comparison-settings">{CORE_IDS.map(id=><label key={id}>Peso: {id}<input name={`weight-${id}`} type="number" min="0" max="100" step="0.1" required defaultValue={tuning.coreWeights[id]??1}/></label>)}</div>}
       <p>La antigüedad máxima puede restringirse a 1–60 minutos; el proveedor descarta cotizaciones de más de una hora. Los 365 días de BSM y las 252 sesiones de anualización son convenciones documentadas.</p>
       {error&&<p role="alert">{error}</p>}
       <button type="submit" className="secondary-button">Aplicar parámetros</button>{' '}

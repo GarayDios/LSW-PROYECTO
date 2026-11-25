@@ -62,10 +62,25 @@ usuario. [Anuncio oficial de API y exportación](https://finviz.com/blog/our-upg
 
 ## Decisión para esta revisión
 
-Se mantiene SEC como fuente del fundamental y se añade un enlace a Finviz por
-empresa en «Datos y variables del análisis». Abrir la ficha no importa valores,
-no sustituye datos históricos y no cambia el ranking. No se implementa extracción
-automática de HTML como sustituto de una API documentada.
+El usuario utiliza Finviz gratuito. Se mantiene SEC como fuente reportada y se
+añade un panel para introducir métricas de la ficha, pegar tablas copiadas o
+importar un CSV que el usuario ya tenga. No se afirma que la exportación integrada
+ni la API sean gratuitas. No se extrae HTML automáticamente ni se elude el acceso Elite.
+
+`finviz-data.ts` reconoce márgenes, rentabilidad, liquidez, deuda/patrimonio,
+múltiplos, participación y variación institucional, además de short float.
+Los porcentajes se convierten explícitamente a decimales; ausencias permanecen
+ausentes. El origen es manual declarado (`kind: assumed`), no una verificación
+directa de Finviz. Se guarda la fecha de importación con la configuración de
+la lista. Una captura posterior al corte o de más de siete días queda excluida.
+Tampoco se mezcla una captura real con velas de demostración.
+
+«Inst Trans» puede aportar un proxy de variación de participación institucional,
+con normalización heurística `tanh(variación / 10%)`. No representa flujo de
+órdenes intradía, volumen comprado/vendido ni probabilidad real de éxito.
+«Inst Own» por sí solo no acredita una variación. La puntuación fundamental usa
+las métricas disponibles de margen, solvencia, ROE y razón corriente y explica
+sus normalizaciones; no equipara el margen TTM de Finviz con el ejercicio SEC.
 
 La ampliación gratuita implementada extrae patrimonio, flujo operativo, capex,
 EPS y conceptos adicionales. Los múltiplos usan precio de Alpaca y conservan la

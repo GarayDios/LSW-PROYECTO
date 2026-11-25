@@ -1,8 +1,10 @@
 import { analyzeStrategy, selectStrategyLegs, type AnalysisPolicy, type StrategyAnalysis } from './strategy-analysis.ts';
-import { CORE_IDS, effectiveCores, type CoreId, type OptionInputs, type StrategyId } from '../compartido/types.ts';
+import { CORE_IDS, type CoreId, type OptionInputs, type StrategyId } from '../compartido/types.ts';
 import { knownBy, missingVariable, type CompanyResearch, type CoreEvidence, type ObservedCoreResult, type ObservedOptionContract, type ResearchVariable } from '../compartido/research-model.ts';
 import { equityTerms, valuationExpiry,modelDividendYield,cashDividendPv } from '../../features/research/contract-terms.ts';
 import { activeCoreWeight, coreWeight, evaluationTuning } from './evaluation-policy.ts';
+import { evaluateScanner, type ScannerEvaluation } from './scanner.ts';
+import { withFinviz } from '../04-analisis-fundamental/finviz-data.ts';
 
 export type ObservedInputOverrides = { dividendYield?: ResearchVariable; riskFreeRate?: ResearchVariable; contractSymbol?: string } & AnalysisPolicy;
 export type ObservedRankedCompany = {
@@ -15,6 +17,7 @@ export type ObservedRankedCompany = {
   probabilityLabel: string;
   contractSymbol: string | null;
   strategyAnalysis: StrategyAnalysis;
+  scannerEvaluation?: ScannerEvaluation;
 };
 const DAY = 86_400_000;
 const clamp = (x: number) => Math.max(0, Math.min(1, x));
@@ -101,9 +104,10 @@ export function rankObservedCompanies(snapshots: readonly CompanyResearch[], sel
   const tuning=evaluationTuning(overrides.tuning);
   const selected=requested.filter(id=>coreWeight(tuning,id)>0);
   const totalWeight=activeCoreWeight(tuning,selected);
-  if(!totalWeight)throw new RangeError('Asigna peso positivo a por lo menos un core seleccionado.');
+  if(!totalWeight && !overrides.scanner)throw new RangeError('Asigna peso positivo a por lo menos un core seleccionado.');
   if (!(strategy in settings) || !Number.isFinite(days) || days <= 0 || days > 3650) throw new RangeError('Selecciona una estrategia y un plazo válidos.');
-  return snapshots.map(snapshot => {
+  return snapshots.map(original => {
+    const snapshot = withFinviz(original, overrides.finviz);
     const analysis = analyzeStrategy(snapshot, strategy, days, overrides);
     const contract = analysis.legs[0]?.contract ?? selectObservedOption(snapshot, strategy, days, overrides);
     const observed = observedOptionInputs(snapshot, contract, overrides);
@@ -157,9 +161,11 @@ export function rankObservedCompanies(snapshots: readonly CompanyResearch[], sel
     const probabilityOfProfit: ResearchVariable = analysis.probability !== null && analysis.status === 'available' ? { value: analysis.probability, source: analysis.probabilityMethod,
       observedAt: snapshot.asOf, availableAt: snapshot.asOf, kind: 'estimated', reason: analysis.warnings.join(' ') }
       : missingVariable('BSM europeo · medida neutral al riesgo', `Entradas incompletas: ${analysis.missing.join(', ')}. ${analysis.probabilityMethod}`);
-    return { symbol: snapshot.symbol, score, coreResults, availableCoreCount: available.length,
+    const scannerEvaluation = overrides.scanner ? evaluateScanner(snapshot, strategy, days, overrides.scanner, overrides, analysis) : undefined;
+    return { symbol: snapshot.symbol, score: scannerEvaluation ? scannerEvaluation.score : score, coreResults, availableCoreCount: scannerEvaluation ? scannerEvaluation.available : available.length,
       reason: score === null ? `${analysis.dataMode==='estimated'?'ESTIMADO · ':''}${available.length}/${selected.length} núcleos disponibles; la puntuación total espera todas las entradas seleccionadas. ${analysis.missing.join(', ')}`
         : `${analysis.status!=='available'?'PERFIL HISTÓRICO DE LA ACCIÓN; estrategia de opciones incompleta. ':''}${analysis.dataMode==='estimated'?'ESTIMADO · ':''}Media ponderada de los núcleos con peso positivo, escala 0–100. Es una heurística de selección, no una probabilidad de éxito. ${coreResults.map(c=>c.core+': '+c.score+' (peso '+coreWeight(tuning,c.core)+')').join('; ')}`,
+      ...(scannerEvaluation ? { reason: scannerEvaluation.reason, scannerEvaluation } : {}),
       probabilityOfProfit, probabilityLabel: strategy === 'wheel' ? 'Probabilidad teórica de una pierna: put inicial; no ciclo Wheel' : analysis.probabilityMethod, contractSymbol: analysis.legs[0]?.contract.symbol ?? contract?.symbol ?? null, strategyAnalysis: analysis };
   }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.symbol.localeCompare(b.symbol));
 }

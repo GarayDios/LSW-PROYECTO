@@ -7,8 +7,12 @@ import { equityTerms, valuationExpiry,modelDividendYield,cashDividendPv } from '
 import { evaluationTuning, type EvaluationTuningInput } from './evaluation-policy.ts';
 import { estimatedSnapshot } from './estimated-snapshot.ts';
 import { inspectContracts, type SelectionDiagnostics } from './strategy-eligibility.ts';
+import type { ScannerSettings } from './scanner-settings.ts';
+import type { FinvizDataset } from '../04-analisis-fundamental/finviz-data.ts';
 
 export type AnalysisPolicy = {
+  finviz?: FinvizDataset;
+  scanner?: ScannerSettings;
   capital?: number; feePerContract?: number; maxSpreadPercent?: number;
   dividendYield?: ResearchVariable; riskFreeRate?: ResearchVariable; longDays?: number; tuning?: EvaluationTuningInput;
   modelMode?:'observed'|'estimated';financingRate?:number;pmccCapitalMode?:'assignment-reserve'|'debit-only';pmccMinLongDelta?:number;ivShock?:number;estimatedSpreadPercent?:number;estimatedSpreadFloor?:number;

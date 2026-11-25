@@ -5,6 +5,10 @@ export type MonteCarloLeg = {
   type: OptionType; strike: number; quantity: number;
   /** Shares delivered by one contract; premium is USD per delivered share. */
   units: number; premium: number;
+  /** Optional diagonal maturity, measured from the initial valuation cutoff. */
+  daysToExpiry?: number;
+  /** Frozen mark volatility for this leg; the underlying still has one sigma. */
+  volatility?: number;
 };
 export type MonteCarloRequest = {
   spot: number; days: number; volatility: number; rate: number; dividendYield: number;
@@ -47,7 +51,9 @@ export function validateMonteCarlo(request: MonteCarloRequest): void {
       || !bounded(leg.strike, 1e-8, 1e7) || !Number.isInteger(leg.quantity)
       || leg.quantity === 0 || Math.abs(leg.quantity) > 100
       || !Number.isInteger(leg.units) || !bounded(leg.units, 1, 10000)
-      || !bounded(leg.premium, 0, 1e7))) {
+      || !bounded(leg.premium, 0, 1e7)
+      || (leg.daysToExpiry !== undefined && !bounded(leg.daysToExpiry, request.days, 7300))
+      || (leg.volatility !== undefined && !bounded(leg.volatility, 0, 3)))) {
     throw new RangeError('Se requieren piernas válidas con cantidades enteras, entregables y primas explícitas.');
   }
   if (request.paths * request.steps * request.legs.length > 2_000_000) {
@@ -112,7 +118,8 @@ function summarize(values: readonly number[]): MonteCarloSummary {
 }
 
 /** Exact GBM transitions under Q: exp((r-q-σ²/2)dt + σ√dt Z).
- * All legs share an underlying, maturity and constant scenario volatility.
+ * All legs share one underlying. Diagonals are valued at the first expiry:
+ * surviving legs retain their own remaining maturity and frozen mark IV.
  * European cash payoff only; no assignment, early exercise or discrete dividends.
  * Cash earns/pays r, stock pays continuous q (left-step approximation).
  * Delta hedges use whole shares, unrestricted financing/shorts and explicit costs.
@@ -129,7 +136,7 @@ export function simulateMonteCarlo(request: MonteCarloRequest): MonteCarloResult
   const model = (price: number, elapsed: number) => {
     let value = 0, delta = 0;
     for (const leg of legs) {
-      const result = blackScholes({ spot: price, strike: leg.strike, days: Math.max(0, days - elapsed), volatility, rate, dividendYield, type: leg.type });
+      const result = blackScholes({ spot: price, strike: leg.strike, days: Math.max(0, (leg.daysToExpiry ?? days) - elapsed), volatility: leg.volatility ?? volatility, rate, dividendYield, type: leg.type });
       value += leg.quantity * leg.units * result.price;
       delta += leg.quantity * leg.units * result.delta;
     }
@@ -170,7 +177,7 @@ export function simulateMonteCarlo(request: MonteCarloRequest): MonteCarloResult
       if (bucket !== undefined) buckets[bucket].push(price);
       sample?.push(price);
     }
-    const payoff = legs.reduce((sum, leg) => sum + leg.quantity * leg.units * Math.max(0, leg.type === 'call' ? price - leg.strike : leg.strike - price), 0);
+    const payoff = model(price, days).value;
     // Decimal premiums/strikes must not turn exact breakeven into fictitious wins.
     const exposureScale = legs.reduce((sum, leg) => sum + Math.abs(leg.quantity) * leg.units * Math.max(leg.strike, price), 0);
     const tolerance = Number.EPSILON * Math.max(1, exposureScale, Math.abs(payoff), Math.abs(initialDebit * Math.exp(rate * T))) * 16;

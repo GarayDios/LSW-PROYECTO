@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createResearchHandlers } from '../../src/api/analysis/handlers.ts';
 import { fetchCompanyResearch } from '../../src/api/research/company.ts';
 import type { MarketHistory } from '../../src/api/market/alpaca-history.ts';
+import { defaultScannerSettings, SCANNER_CORE_IDS } from '../../src/cores/evaluacion/scanner-settings.ts';
+import { defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
 
 const environment = { ALPACA_API_KEY: 'private-test-key', ALPACA_SECRET_KEY: 'private-test-secret', BROKER_OWNER_USER_ID: 'owner' };
 const now = Date.parse('2026-11-13T16:00:00Z');
@@ -17,6 +19,32 @@ const history: typeof import('../../src/api/market/alpaca-history.ts').fetchAlpa
 const get = (query = 'symbol=AAPL&start=2023-11-13&end=2026-11-13') => new Request('https://terminal.test/api/research/company?' + query);
 const body = { symbols: ['AAPL', 'MSFT'], selectedCores: ['trend'], strategy: 'wheel', days: 30, start: '2023-11-13', end: '2026-11-13' };
 const post = (value: unknown = body, origin = 'https://terminal.test') => new Request('https://terminal.test/api/research/ranking', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+
+test('short visible ranges load indicator preparation without changing the requested end or decision cutoff', async () => {
+  const calls: { start: string; end: string }[] = [];
+  const api = createResearchHandlers({ environment:()=>environment, owner, research, now:()=>now, history:async(config,query,...rest)=>{calls.push(query);return history(config,query,...rest);} });
+  const response = await api.company(get('symbol=AAPL&start=2026-11-12&end=2026-11-13'));
+  assert.equal(response.status,200);
+  assert.ok(Date.parse(calls[0].start) <= Date.parse('2026-11-13') - 399 * 86400000);
+  assert.equal(calls[0].end,'2026-11-13');
+  const result = await response.json() as {research:{asOf:string;warnings:string[]}};
+  assert.equal(result.research.asOf,new Date(now).toISOString());
+  assert.ok(result.research.warnings.some(w=>w.includes('400')));
+});
+
+test('ranking accepts the seven scanner cores, reports absent data and rejects an empty active selection', async () => {
+  const api = createResearchHandlers({ environment: () => environment, owner, history, research, now: () => now });
+  const analysis = { ...defaultAnalysisSettings, scanner: defaultScannerSettings };
+  const response = await api.ranking(post({ ...body, analysis }));
+  assert.equal(response.status, 200);
+  const result = await response.json() as { ranked: { score: number | null; scannerEvaluation: { active: number } }[] };
+  assert.equal(result.ranked[0].scannerEvaluation.active, 7);
+  assert.equal(result.ranked[0].score, null, 'stale candles and absent external sources cannot yield a scanner score');
+  const disabled = { ...defaultScannerSettings, cores: Object.fromEntries(SCANNER_CORE_IDS.map(id => [id, { enabled: false, weight: 1 }])) };
+  assert.equal((await api.ranking(post({ ...body, analysis: { ...analysis, scanner: disabled } }))).status, 400);
+  const invalid = { ...defaultScannerSettings, cores: { ...defaultScannerSettings.cores, news: { enabled: true, weight: -1 } } };
+  assert.equal((await api.ranking(post({ ...body, analysis: { ...analysis, scanner: invalid } }))).status, 400);
+});
 
 test('ranking validates per-company assumptions and retains their provenance without changing provider facts', async()=>{
   const api=createResearchHandlers({environment:()=>environment,owner,history,research,now:()=>now});

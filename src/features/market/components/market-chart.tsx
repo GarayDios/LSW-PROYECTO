@@ -15,8 +15,10 @@ import { ChartNewsRail, ChartNewsDetails } from './chart-news-timeline';
 import type { ChartNewsState } from '../hooks/use-chart-news';
 import './chart-studies.css';
 import type { MarketSource } from '../hooks/use-market-history';
+import type { ScannerProjection } from '../../../cores/evaluacion/scanner';
 
 type MarketChartProps = {
+  projection?: ScannerProjection | null;
   symbol: string;
   price: number;
   range: string;
@@ -81,7 +83,7 @@ export default function MarketChart(props: MarketChartProps) {
   return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, optionLevels, volatility, days, rate, dividendYield }} candles={candles} history={history} loadedHistory={loadedHistory} viewWindow={viewWindow} onViewWindow={setViewWindow}/>;
 }
 
-function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news }: MarketChartProps & {candles: Candle[]; history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
+function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news, projection }: MarketChartProps & {candles: Candle[]; history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
   const [hovered, setHovered] = useState<number | null>(null);
   const [selectedNews, setSelectedNews] = useState<string | null>(null);
   const newsDetailsId = useId();
@@ -93,12 +95,13 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
     observer.observe(container.current); return () => observer.disconnect();
   }, []);
   const WIDTH = Math.max(720, viewportWidth), RIGHT = WIDTH - 88;
+  const dataRight = projection ? RIGHT - Math.min(190, (RIGHT - LEFT) * .24) : RIGHT;
   const newsHeight = studies.news ? 64 : 0, volumeBottom = VOLUME_BOTTOM + newsHeight, height = HEIGHT + newsHeight;
-  const newsSnapshot = source === 'alpaca' && news?.snapshot?.symbol === symbol ? news.snapshot : null;
+  const newsSnapshot = news?.snapshot?.symbol === symbol && (source === 'alpaca' || news.snapshot.news.articles.every(a => a.headline.startsWith('DEMO:'))) ? news.snapshot : null;
   const newsViewStart = viewWindow === 'all' ? startDate! : newsSessionDate(history[0].time);
   const newsGroups = useMemo(() => studies.news && newsSnapshot ? groupChartNews({ articles: newsSnapshot.news.articles,
-    history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: endDate!, left: LEFT, right: RIGHT }) : [],
-    [studies.news, newsSnapshot, history, interval, newsViewStart, endDate, RIGHT]);
+    history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: endDate!, left: LEFT, right: dataRight }) : [],
+    [studies.news, newsSnapshot, history, interval, newsViewStart, endDate, dataRight]);
   const technicalBars = studyHistory ?? loadedHistory;
   const technical = useMemo(() => technicalAnalysis?.indicators ?? calculateTechnicalIndicators(technicalBars), [technicalAnalysis, technicalBars]);
   const structure = useMemo(() => technicalAnalysis?.structure ?? analyzeSupportResistance(technicalBars), [technicalAnalysis, technicalBars]);
@@ -114,11 +117,17 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   const inputs = {spot:observedOption?.spot??lastClose,strike,days:observedOption?.days??Math.max(1,days),volatility:observedOption?.volatility??volatility,rate:observedOption?.rate??rate,dividendYield:observedOption?.dividendYield??dividendYield,type:observedOption?.type??'call' as OptionType};
   const demoPremium = optionLevels && source === 'demo' ? blackScholes(inputs).price : null;
   const metrics = optionLevels && modelAvailable ? profitMetrics({...inputs,premium:observedOption?.premium??demoPremium!,side:observedOption?.side??'buy'}) : null;
+  const preparationRange = technicalBars.slice(-21, -1);
+  const provisionalLevels = preparationRange.length === 20 ? [
+    ...(!structure.levels.some(level => level.kind === 'support') ? [{ value: Math.min(...preparationRange.map(bar => bar.low)), label: 'Rango provisional · mínimo de 20 sesiones', color: UP, fromTime: technicalBars.at(-1)!.time, labelVisible: true, inlineLabel: true }] : []),
+    ...(!structure.levels.some(level => level.kind === 'resistance') ? [{ value: Math.max(...preparationRange.map(bar => bar.high)), label: 'Rango provisional · máximo de 20 sesiones', color: DOWN, fromTime: technicalBars.at(-1)!.time, labelVisible: true, inlineLabel: true }] : []),
+  ] : [];
   const levels: {value:number;label:string;color:string;fromTime?:number;labelVisible?:boolean;inlineLabel?:boolean}[] = [
     ...strategyLevels.filter(level=>Number.isFinite(level.value)&&level.value>0).map(level => ({ ...level, labelVisible: true, inlineLabel: level.kind !== 'strategy' })),
     ...(studies.supportResistance ? structure.levels.map(level => ({ value: level.price,
       label: `${level.kind === 'support' ? 'Soporte' : 'Resistencia'} confirmado · ${level.touches} contactos`,
       color: level.kind === 'support' ? UP : DOWN, fromTime: level.confirmedAt, labelVisible: true, inlineLabel: true })) : []),
+    ...(studies.supportResistance ? provisionalLevels : []),
     ...(optionLevels && modelAvailable ? [{value:strike,label:source==='demo'?'Contrato demo · strike ATM':'Contrato observado · strike',color:'#bca2ff',labelVisible:true,inlineLabel:true}] : []),
     ...(optionLevels && metrics ? [{value:metrics.breakeven,label:`Equilibrio ${inputs.type} ${observedOption?.side==='sell'?'vendida':'comprada'}`,color:'#67ceee',labelVisible:true,inlineLabel:true}] : []),
     ...(studies.volatilityBands && sigma !== null ? [{value:lastClose*(1+sigma),label:source==='demo'?'+1σ demo':'+1σ HV',color:'#d6b66c',labelVisible:true,inlineLabel:true},{value:lastClose*Math.max(.01,1-sigma),label:source==='demo'?'−1σ demo':'−1σ HV',color:'#d6b66c',labelVisible:true,inlineLabel:true}] : []),
@@ -131,14 +140,15 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   }) : [];
   const gapPrices = studies.gaps ? gaps.filter(event => event.time >= history[0].time && event.time <= history.at(-1)!.time)
     .flatMap(event => [event.price, event.previousClose ?? event.price]) : [];
-  const minimum = Math.min(...candles.map(candle => candle.low), ...levels.map(l=>l.value), ...averageValues, ...gapPrices);
-  const maximum = Math.max(...candles.map(candle => candle.high), ...levels.map(l=>l.value), ...averageValues, ...gapPrices);
+  const projectionValues = projection ? [projection.lower, projection.upper, projection.target, projection.baseline, projection.spot] : [];
+  const minimum = Math.min(...candles.map(candle => candle.low), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues);
+  const maximum = Math.max(...candles.map(candle => candle.high), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues);
   const padding = Math.max(maximum - minimum, maximum * .005) * 0.18;
   const low = minimum - padding;
   const high = maximum + padding;
   const extent = high - low || 1;
   const y = (value: number) => TOP + (high - value) / extent * (BOTTOM - TOP);
-  const step = (RIGHT - LEFT) / candles.length;
+  const step = (dataRight - LEFT) / candles.length;
   const x = (i: number) => LEFT + step * (i + 0.5);
   const candleWidth = Math.max(3, Math.min(8, step * 0.59));
   const maxVolume = Math.max(1, ...candles.map(candle => candle.volume));
@@ -233,7 +243,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const pointerX = (event.clientX - bounds.left) / bounds.width * WIDTH;
-    if (pointerX < LEFT || pointerX > RIGHT) {
+    if (pointerX < LEFT || pointerX > dataRight) {
       setHovered(null);
       return;
     }
@@ -254,6 +264,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         {studies.crosses && <span>◇ Cruce 20/50</span>}{studies.macd && <span>◇ MACD</span>}
         {studies.gaps && <span>GAP · apertura vs. cierre anterior · ≥ 0.5%</span>}
         {studies.news && <span style={{color:'#d6b66c'}}><i/>Noticias · N / cantidad de titulares</span>}
+        {projection && <><span style={{color:'#bd9aff'}}>Escenario por cores · línea punteada</span><span style={{color:'#8b98a5'}}>Referencia sin aporte de sentimiento · gris</span></>}
       </div>
       {viewportWidth < 720 && <p className="chart-scroll-hint">Desliza la gráfica horizontalmente para explorar las velas y los indicadores.</p>}
       <div className="chart-price-surface" role="region" aria-label="Gráfica de precio e indicadores" tabIndex={0}>
@@ -290,6 +301,17 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
             <text x={x(i)} y={height - 10} textAnchor={i === 0 ? "start" : i === candles.length - 1 ? "end" : "middle"} fill="#929ba6" fontSize="12">{formatTime(candles[i].time, intraday)}</text>
           </g>
         ))}
+        {projection && <g data-core-projection="true" aria-label={`Escenario por cores a ${projection.days} días; precio ${formatPrice(projection.target)}; aporte de noticias ${formatPrice(projection.newsImpact)}`}>
+          <title>Escenario de sensibilidad bajo supuestos; banda de volatilidad histórica, sin garantía predictiva. Referencia gris: misma ponderación con sentimiento neutral.</title>
+          <rect x={dataRight} y={TOP} width={RIGHT-dataRight} height={BOTTOM-TOP} fill="#bd9aff" opacity=".035"/>
+          <line x1={dataRight} x2={dataRight} y1={TOP} y2={BOTTOM} stroke="#74808f" strokeDasharray="3 5"/>
+          <path d={`M${dataRight},${y(projection.spot)} L${RIGHT},${y(projection.upper)} L${RIGHT},${y(projection.lower)} Z`} fill="#bd9aff" opacity=".10"/>
+          <path data-news-baseline="true" d={`M${dataRight},${y(projection.spot)} L${RIGHT},${y(projection.baseline)}`} fill="none" stroke="#8b98a5" strokeDasharray="3 6"/>
+          <path data-sentiment-projection="true" d={`M${dataRight},${y(projection.spot)} L${RIGHT},${y(projection.target)}`} fill="none" stroke="#bd9aff" strokeWidth="2" strokeDasharray="6 4"/>
+          <circle cx={RIGHT} cy={y(projection.target)} r="3" fill="#bd9aff"/>
+          <text x={dataRight+8} y={TOP+14} fill="#bd9aff" fontSize="10">ESCENARIO · +{projection.days}d</text>
+          <text x={RIGHT-4} y={y(projection.target)-8} textAnchor="end" fill="#d5bfff" fontSize="11">{formatPrice(projection.target)}</text>
+        </g>}
         {studies.volume && candles.map((candle, i) => {
           const color = candle.close >= candle.open ? UP : DOWN;
           const volumeHeight = candle.volume / maxVolume * 42;

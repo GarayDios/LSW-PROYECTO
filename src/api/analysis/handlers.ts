@@ -6,6 +6,8 @@ import { fetchCompanyResearch } from '../research/company.ts';
 import { rankObservedCompanies } from '../../cores/evaluacion/observed-ranking.ts';
 import type { CompanyResearch } from '../../cores/compartido/research-model.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
+import { activeScannerCores } from '../../cores/evaluacion/scanner-settings.ts';
+import { researchHistoryStart } from '../../features/research/research-history.ts';
 
 type Environment = Record<string, string | undefined>;
 type Dependencies = {
@@ -22,7 +24,7 @@ const rankingInput = range.extend({
   selectedCores: z.array(z.enum(['bsm', 'greeks', 'probability', 'volatility', 'trend', 'liquidity', 'risk'])).min(1).max(7),
   strategy: z.enum(['wheel', 'pmcc', 'backspread', 'gamma']), days: z.number().int().min(1).max(3650),
   analysis: analysisSettingsSchema.optional(),
-}).strict().refine(input=>input.selectedCores.some(core=>(input.analysis?.tuning?.coreWeights?.[core]??1)>0),'Asigna peso positivo a un core seleccionado.');
+}).strict().refine(input=>input.analysis?.scanner ? activeScannerCores(input.analysis.scanner).length > 0 : input.selectedCores.some(core=>(input.analysis?.tuning?.coreWeights?.[core]??1)>0),'Asigna peso positivo a un core seleccionado.');
 
 function publicError(error: unknown): Response {
   if (error instanceof ApiError || error instanceof BrokerConfigError || error instanceof BrokerError || error instanceof MarketDataError) {
@@ -59,14 +61,15 @@ export function createResearchHandlers(dependencies: Dependencies) {
     if (existing && existing.expires > now) return existing.value;
     if (cache.size >= 128) cache.delete(cache.keys().next().value!);
     const value = (async () => {
-      const history = await (dependencies.history ?? fetchAlpacaHistory)(auth.config, { symbol: input.symbol, start: input.start, end: input.end, interval: '1d' }, fetcher, now);
+      const preparationStart = researchHistoryStart(input.start, input.end);
+      const history = await (dependencies.history ?? fetchAlpacaHistory)(auth.config, { symbol: input.symbol, start: preparationStart, end: input.end, interval: '1d' }, fetcher, now);
       const result = await (dependencies.research ?? fetchCompanyResearch)({
         symbol: input.symbol, bars: history.bars, asOf: asOf.toISOString(), historySource: `alpaca:${history.feed}`,
         alpaca: { apiKey: auth.config.apiKey, secretKey: auth.config.secretKey, stockFeed:auth.config.dataFeed,optionsFeed: auth.environment.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative' },
         ...(auth.environment.SEC_USER_AGENT?.trim() ? { sec: { userAgent: auth.environment.SEC_USER_AGENT.trim() } } : {}),
         ...(auth.environment.FRED_API_KEY?.trim() ? { fred: { apiKey: auth.environment.FRED_API_KEY.trim() } } : {}),
       }, fetcher, new Date(now));
-      result.warnings = [...new Set([...history.warnings, ...result.warnings])];
+      result.warnings = [...new Set([...history.warnings, ...result.warnings, ...(preparationStart < input.start ? ['Se cargan hasta 400 días previos al corte para preparar los indicadores; la ventana visible conserva sus fechas.'] : [])])];
       return result;
     })();
     cache.set(key, { expires: now + 60000, value });

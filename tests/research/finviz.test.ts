@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseFinvizData, withFinviz, finvizNumber } from '../../src/cores/04-analisis-fundamental/finviz-data.ts';
+import { evaluateScanner } from '../../src/cores/evaluacion/scanner.ts';
+import { defaultScannerSettings } from '../../src/cores/evaluacion/scanner-settings.ts';
+import { researchFixture, fixtureTime } from './research-fixture.ts';
+import { analysisSettingsSchema, defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
+import { rankObservedCompanies } from '../../src/cores/evaluacion/observed-ranking.ts';
+
+const settings=structuredClone(defaultScannerSettings);
+for(const core of Object.values(settings.cores))core.enabled=false;
+settings.cores.institutional.enabled=true;
+const capturedAt='2026-11-17T15:50:00.000Z';
+test('free Finviz copied tables normalize percentages, aliases and zero without fabricating missing metrics',()=>{
+  assert.equal(finvizNumber('2,5%',true),null,'a decimal comma cannot silently become 25%');
+  assert.equal(finvizNumber('1,234.5',false),1234.5);
+  const data=parseFinvizData('Inst Trans\t2.5%\tInst Own\t65.4%\nProfit Margin\t18%\nROE\t0%\nP/E\t-','AAPL',capturedAt);
+  assert.equal(data.records.AAPL.institutionalTransactions,.025);
+  assert.equal(data.records.AAPL.institutionalOwnership,.654);
+  assert.equal(data.records.AAPL.profitMargin,.18);
+  assert.equal(data.records.AAPL.roe,0);
+  assert.equal(data.records.AAPL.pe,undefined);
+  assert.equal(parseFinvizData('Institutional Transactions -5.25%\nCurrent Ratio 1.4','AAPL',capturedAt).records.AAPL.institutionalTransactions,-.0525);
+});
+test('CSV supports quoted commas, percent columns, multiple companies and rejects duplicates and broken data',()=>{
+  const data=parseFinvizData('Ticker,Company,Institutional Transactions,Net Profit Margin,P/E\r\nAAPL,"Example, Inc.",-1.2%,21.5%,30\r\nMSFT,"Other ""Company""",3%,22.5%,35','AAPL',capturedAt);
+  assert.equal(data.records.AAPL.institutionalTransactions,-.012);
+  assert.equal(data.records.MSFT.profitMargin,.225);
+  assert.equal(data.records.AAPL.pe,30);
+  assert.throws(()=>parseFinvizData('Ticker,Inst Trans\nAAPL,2%\nAAPL,3%','AAPL',capturedAt),/repite/);
+  assert.throws(()=>parseFinvizData('Ticker,Inst Trans\nAAPL,"2%','AAPL',capturedAt),/comillas/);
+  assert.throws(()=>parseFinvizData('hello world','AAPL',capturedAt),/reconocieron/);
+});
+test('Inst Trans activates a disclosed ownership proxy; ownership alone cannot masquerade as net flow',()=>{
+  const snapshot=researchFixture();const data=parseFinvizData('Inst Trans\t5%\nInst Own\t80%','AAPL',capturedAt);
+  data.records[snapshot.symbol]=data.records.AAPL;
+  const result=evaluateScanner(snapshot,'wheel',30,settings,{finviz:data});
+  assert.ok(result.score!>50);
+  assert.match(result.results[0].reason,/Proxy Finviz/);
+  assert.match(result.results[0].reason,/no es flujo intradía/);
+  delete data.records[snapshot.symbol].institutionalTransactions;
+  assert.equal(evaluateScanner(snapshot,'wheel',30,settings,{finviz:data}).score,null);
+});
+test('Finviz current imports do not leak into historical cutoffs, stale captures or demo snapshots',()=>{
+  const snapshot=researchFixture();
+  const future=parseFinvizData('Inst Trans 8%',snapshot.symbol,'2026-11-18T16:00:00.000Z');
+  assert.equal(evaluateScanner(snapshot,'wheel',30,settings,{finviz:future}).score,null);
+  const stale=parseFinvizData('Inst Trans 8%',snapshot.symbol,'2026-11-01T16:00:00.000Z');
+  assert.equal(evaluateScanner(snapshot,'wheel',30,settings,{finviz:stale}).score,null);
+  const current=parseFinvizData('Inst Trans 8%',snapshot.symbol,capturedAt);
+  assert.equal(withFinviz({...snapshot,dataMode:'demo'},current).finviz,undefined);
+  const historical={...snapshot,quality:{...snapshot.quality,historicalOnly:true}};
+  assert.equal(withFinviz(historical,future,true).asOf,historical.asOf);
+  const now=structuredClone(snapshot);now.quality.historicalOnly=false;
+  const later=parseFinvizData('Inst Trans 8%',snapshot.symbol,'2026-11-17T16:01:00.000Z');
+  assert.equal(withFinviz(now,later,true).asOf,later.capturedAt);
+});
+test('Finviz data persists as explicit inputs and is used by the server ranking with preserved SEC facts',()=>{
+  const snapshot=researchFixture(),before=structuredClone(snapshot);
+  const data=parseFinvizData('Inst Trans 8%\nProfit Margin 22%\nROE 30%\nCurrent Ratio 1.6',snapshot.symbol,capturedAt);
+  const parsed=analysisSettingsSchema.parse({...defaultAnalysisSettings,finviz:data,scanner:settings});
+  assert.deepEqual(parsed.finviz,data);
+  const ranked=rankObservedCompanies([snapshot],['trend'],'wheel',30,{scanner:settings,finviz:data})[0];
+  assert.ok(ranked.score!>50);
+  assert.match(ranked.scannerEvaluation!.results[0].reason,/Finviz/);
+  assert.deepEqual(snapshot,before);
+  const enriched=withFinviz(snapshot,data);
+  assert.equal(enriched.finviz!.metrics.profitMargin!.kind,'assumed');
+  assert.equal(enriched.finviz!.metrics.profitMargin!.availableAt,capturedAt);
+  assert.equal(enriched.asOf,fixtureTime);
+});

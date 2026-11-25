@@ -55,7 +55,7 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
   input: OptionInputs | null; premium?: number; side?: 'buy' | 'sell'; context: string;
   research: CompanyResearch | null; strategy: StrategyId; days: number; settings: AnalysisSettings; singleWarnings?: string[];
 }) {
-  const [target, setTarget] = useState<'single' | 'strategy'>('single');
+  const [target, setTarget] = useState<'single' | 'strategy'>(research ? 'strategy' : 'single');
   const [paths, setPaths] = useState('10000'), [steps, setSteps] = useState('32'), [seed, setSeed] = useState('42');
   const [hedge, setHedge] = useState(false), [hedgeFee, setHedgeFee] = useState('0.005');
   const [spread, setSpread] = useState('10'), [borrow, setBorrow] = useState('5');
@@ -115,7 +115,7 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
     <summary>Núcleo cuantitativo · Monte Carlo</summary>
     <p>Explora miles de trayectorias bajo los supuestos de BSM. La frecuencia de beneficio pertenece al modelo neutral al riesgo; no es una predicción de éxito real.</p>
     <div className="mc-controls">
-      <label>Posición a simular<select aria-label="Posición Monte Carlo" value={target} onChange={e => setTarget(e.target.value as 'single' | 'strategy')}><option value="single">Opción individual del modelo</option><option value="strategy" disabled={!research}>Estrategia seleccionada · Alpaca</option></select></label>
+      <label>Posición a simular<select aria-label="Posición Monte Carlo" value={target} onChange={e => setTarget(e.target.value as 'single' | 'strategy')}><option value="single">Opción individual del modelo</option><option value="strategy" disabled={!research}>Estrategia seleccionada · contratos y fuentes</option></select></label>
       <label>Trayectorias<input aria-label="Trayectorias Monte Carlo" type="number" min="100" max="50000" step="100" value={paths} onChange={e => setPaths(e.target.value)}/></label>
       <label>Pasos por trayectoria<input aria-label="Pasos Monte Carlo" type="number" min="1" max="128" value={steps} onChange={e => setSteps(e.target.value)}/></label>
       <label>Semilla reproducible<input aria-label="Semilla Monte Carlo" type="number" min="0" max="4294967295" value={seed} onChange={e => setSeed(e.target.value)}/></label>

@@ -1,5 +1,6 @@
 import type { Candle } from '../../features/market/chart-history.ts';
 import type { CoreId, OptionType } from './types.ts';
+import type { FinvizResearch } from '../04-analisis-fundamental/finviz-data.ts';
 
 /** A numeric input always carries its origin and the date it became knowable. */
 export type ResearchVariable = {
@@ -115,7 +116,7 @@ export type ResearchMacro = {
 export type ResearchNews = {
   articles: { id: string; headline: string; url: string | null; source: string; publishedAt: string; availableAt: string }[];
   complete: boolean;
-  /** News is evidence for inspection; no fabricated sentiment/profit likelihood. */
+  /** Headlines retain dates and sources; sentiment is derived at the decision cutoff. */
   status: ProviderStatus;
   warnings: string[];
 };
@@ -128,6 +129,10 @@ export type NewsTimelinePage = {
 
 export type CompanyResearch = {
   symbol: string;
+  dataMode?: 'demo';
+  finviz?: FinvizResearch;
+  /** Optional normalized net flow, −1..1, from an identified institutional source. */
+  institutionalFlow?: ResearchVariable;
   /** Decision cutoff. Inputs published after this instant are excluded. */
   asOf: string;
   generatedAt: string;

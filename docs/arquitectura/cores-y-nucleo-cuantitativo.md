@@ -1,5 +1,97 @@
 # Núcleo cuantitativo y siete cores funcionales
 
+## Cores del escáner según la referencia de interfaz
+
+La configuración visible del escáner utiliza ahora **Estrategia propia,
+Fundamental, Monte Carlo (PoP), Soportes y resistencias, Flujo institucional,
+Indicadores técnicos y Noticias y earnings**. La interfaz permite seleccionar
+los que participan y su peso relativo. Peso 2 aporta el doble que peso 1;
+peso 0 excluye al core. Los pesos se guardan con la lista y se aplican al ranking
+y al escenario. La cifra bajo la casilla es puntuación 0–100; para Monte Carlo
+corresponde a la frecuencia de beneficio del modelo, no a éxito real calibrado.
+Esta configuración sustituye los selectores de BSM, griegas,
+probabilidad, volatilidad, tendencia, liquidez y riesgo en el explorador; esos
+identificadores se conservan únicamente para las listas y consumidores anteriores.
+La organización de carpetas funcionales descrita más abajo sigue siendo interna.
+
+`evaluacion/scanner.ts` calcula la media ponderada de los cores evaluables activados.
+Un core desactivado no cuenta; uno sin datos se informa y se excluye.
+Si ninguno es evaluable, la puntuación es nula.
+La configuración se guarda en `config.analysis.scanner` y se usa en el escáner,
+la comparación de estrategias, el endpoint de ranking y el escenario gráfico.
+Los selectores de capas permiten ocultar dibujos sin cambiar esta configuración.
+
+El sentimiento utiliza reglas bilingües explícitas, negación, deduplicación y
+titulares de los últimos 30 días, conocidos y revisados antes del corte.
+Su peso temporal tiene semivida de siete días. Es una heurística inspeccionable,
+no un modelo entrenado ni una probabilidad calibrada. Los titulares de earnings
+se identifican, sin inventar una fecha de resultados futuros.
+
+Los sesgos direccionales disponibles, sus pesos y la volatilidad histórica
+construyen un escenario de sensibilidad separado de las velas históricas.
+La referencia gris conserva la ponderación con sentimiento neutral; la diferencia
+respecto de la trayectoria violeta muestra la contribución de noticias al precio.
+El P/L usa el payoff conjunto con costes para estructuras de un vencimiento y
+la valoración BSM de la LEAPS al vencimiento de la call corta para PMCC.
+Las noticias pueden cambiar el precio
+del escenario sin cambiar el payoff si no se cruza un strike.
+
+Monte Carlo ejecuta 2,000 trayectorias con semilla fija, primas de entrada y
+comisiones de la estrategia. Mantiene su PoP neutral al riesgo separada del
+escenario de sentimiento. PMCC simula hasta el primer vencimiento y conserva
+el plazo y la IV de cada pierna al marcar su valor. Gamma muestra el
+straddle sin cobertura, identificado como tal. El flujo institucional exige
+`institutionalFlow` observado, normalizado, reciente y con fuente; no se
+deduce del volumen ni del open interest. El proveedor actual no lo suministra.
+
+Verificación: `npm test`, `npm run typecheck`, `npm run build` y
+`node scripts/scanner-browser-scenario.mjs` con la interfaz local iniciada.
+El navegador usa fixtures aisladas, comprueba pesos, captura Finviz, sentimiento, gráfica,
+datos faltantes, guardado de listas y ancho móvil; no realiza escrituras remotas.
+Las capturas quedan en `outputs/scanner-desktop.png` y `outputs/scanner-mobile.png`.
+
+La casilla «¿Qué falta?» muestra el diagnóstico concreto, incluida antigüedad de
+cotizaciones, IV, restricciones de capital y contratos. El acceso al escenario
+estimado es explícito y conserva los supuestos; no relaja la validez del modo
+observado. Fuera de sesión pueden existir contratos sin ninguna cotización reciente.
+
+El panel Finviz permite valores de la ficha gratuita, tablas copiadas y CSV ya
+disponibles. Se conservan como datos manuales declarados, con la fecha de captura
+y vigencia máxima de siete días; no se aplican a demostración ni se retrofechan
+para backtests. «Inst Trans» puede alimentar el core institucional como proxy
+de variación de participación, separado del flujo neto intradía. «Inst Own» solo
+no activa ese proxy. Margen, ROE, solvencia y liquidez complementan el fundamental
+sin sustituir los hechos SEC. Ver `docs/integraciones/sec-y-finviz.md`.
+
+El histórico de investigación carga hasta 400 días de preparación anteriores al
+corte si la ventana visible es corta. La gráfica y su CSV conservan el rango
+elegido. El modo demo incluye métricas fundamentales y titulares sintéticos
+identificados como tales. Un resultado vacío verificado de noticias es neutral;
+un fallo de consulta sigue siendo «sin datos». La estructura combina niveles
+confirmados con extremos provisionales de las 20 sesiones anteriores, sin
+presentar estos últimos como rebotes confirmados.
+
+## Cuenta, conexiones y modos de trabajo
+
+La navegación incorpora Mi cuenta, Cadena de opciones y Conexiones; los modos
+incluyen Mesa de órdenes, Screener, Evaluación detallada, Recomendador CC/CSP y
+Simulación histórica. Se reutilizan las revisiones y confirmaciones manuales
+de Alpaca Paper y Webull Sandbox. El recomendador filtra el bid neto de comisiones,
+el capital para CSP y las acciones declaradas para CC; la cobertura real se
+verifica posteriormente en el bróker. La anualización de prima es simple, a 365 días.
+
+`GET /api/connections` devuelve únicamente configuración y capacidades públicas,
+sin claves ni direcciones privadas. Configurado no equivale a conectado.
+`?probe=supabase` y `?probe=mongodb` requieren sesión y realizan una lectura
+limitada al propietario autenticado; no guardan ni migran datos. Seleccionar
+una base utiliza el controlador de persistencia existente. Sin sesión, se
+ofrece el inicio de sesión y se mantienen deshabilitadas las acciones remotas.
+Las capturas del hub son `outputs/connections-desktop.png` y
+`outputs/connections-mobile.png`.
+
+Las siguientes secciones documentan la organización previa y los consumidores
+que conservan compatibilidad; no describen los selectores actuales del escáner.
+
 La definición confirmada por el usuario separa el núcleo cuantitativo de los
 siete cores. Sustituye la ampliación anterior que trataba BSM, griegas,
 probabilidad, volatilidad, tendencia, liquidez y riesgo como siete cores.

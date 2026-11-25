@@ -28,7 +28,9 @@ function prepare(sample:Sample,cores:readonly CoreId[],strategy:StrategyId,days:
   const s=sample.snapshot as unknown as CompanyResearch,cutoff=Date.parse(s.asOf);
   if(s.options.feed!=='opra')throw new RangeError('Se requiere cadena OPRA observada, no indicative ni reconstrucción.');
   if(s.market.bars.some(b=>b.time>cutoff))throw new RangeError('La muestra contiene velas posteriores a su corte.');
-  const ranked=rankObservedCompanies([s],cores,strategy,days,{...policy,modelMode:'observed',dividendYield:undefined,riskFreeRate:undefined})[0];
+  // This dataset and optimizer validate the legacy quantitative criteria only.
+  // They do not contain the dated news/fundamental evidence for seven-core scans.
+  const ranked=rankObservedCompanies([s],cores,strategy,days,{...policy,scanner:undefined,modelMode:'observed',dividendYield:undefined,riskFreeRate:undefined})[0];
   const a=ranked.strategyAnalysis;
   if(ranked.score===null||a.status!=='available'||!a.capitalRequired||a.entryDebit===null)throw new RangeError('Cores, contratos o capital incompletos para reproducir la selección.');
   if(ranked.coreResults.some(c=>c.evidence.some(e=>e.variable?.kind==='assumed')))throw new RangeError('La muestra usa supuestos como entradas históricas.');

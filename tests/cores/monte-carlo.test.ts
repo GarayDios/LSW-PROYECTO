@@ -11,6 +11,28 @@ const base: MonteCarloRequest = { spot: 100, days: 365, volatility: .2, rate: .0
 const optionInput = (r: MonteCarloRequest) => ({ spot: r.spot, days: r.days, volatility: r.volatility, rate: r.rate,
   dividendYield: r.dividendYield, type: r.legs[0].type, strike: r.legs[0].strike });
 
+test('PMCC values the surviving long at the short expiry without losing its time value', () => {
+  const request: MonteCarloRequest = { ...base, days: 30, volatility: 0, rate: 0, paths: 100, legs: [
+    { type: 'call', strike: 80, quantity: 1, units: 100, premium: 23, daysToExpiry: 365, volatility: .25 },
+    { type: 'call', strike: 100, quantity: -1, units: 100, premium: 3, daysToExpiry: 30, volatility: .25 },
+  ] };
+  const result = simulateMonteCarlo(request);
+  const surviving = blackScholes({ spot: 100, strike: 80, type: 'call', days: 335, volatility: .25, rate: 0, dividendYield: 0 }).price;
+  assert.ok(surviving > 20, 'LEAPS has remaining time value');
+  assert.ok(Math.abs(result.pnl.mean - (surviving * 100 - 2000)) < 1e-9);
+  assert.ok(result.pnl.mean > 0, 'collapsing both legs to intrinsic would incorrectly produce zero');
+  assert.throws(() => validateMonteCarlo({ ...request, legs: [{ ...request.legs[0], daysToExpiry: 20 }] }), RangeError);
+});
+
+test('diagonal discounted mark is consistent with BSM when the path and leg volatilities match', () => {
+  const request: MonteCarloRequest = { ...base, days: 30, paths: 30000, legs: [
+    { type: 'call', strike: 80, quantity: 1, units: 1, premium: 23, daysToExpiry: 365, volatility: .2 },
+    { type: 'call', strike: 100, quantity: -1, units: 1, premium: 3, daysToExpiry: 30, volatility: .2 },
+  ] };
+  const result = simulateMonteCarlo(request);
+  assert.ok(Math.abs(result.fairValue.mean - result.bsmValue) < 4 * result.fairValue.standardError);
+});
+
 test('Monte Carlo prices calls and puts consistently with BSM, dividends and negative rates', () => {
   for (const type of ['call', 'put'] as const) for (const rate of [-.02, .05]) {
     const request = { ...base, rate, dividendYield: .03, paths: 40000, legs: [{ ...base.legs[0], type }] };

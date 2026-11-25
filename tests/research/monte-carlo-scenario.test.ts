@@ -6,7 +6,7 @@ import { missingVariable } from '../../src/cores/compartido/research-model.ts';
 import { fixtureVariable as v, researchFixture } from './research-fixture.ts';
 
 test('Monte Carlo strategy adapter preserves bid/ask cashflows, ratios, fees and original snapshots', () => {
-  for (const strategy of ['wheel', 'backspread', 'gamma'] as const) {
+  for (const strategy of ['wheel', 'backspread', 'gamma', 'pmcc'] as const) {
     const snapshot = researchFixture(), before = structuredClone(snapshot), policy = { feePerContract: .65 };
     const actual = strategyMonteCarloScenario(snapshot, strategy, 30, policy), analysis = analyzeStrategy(snapshot, strategy, 30, policy);
     assert.ok(actual.scenario, actual.error);
@@ -15,7 +15,7 @@ test('Monte Carlo strategy adapter preserves bid/ask cashflows, ratios, fees and
     assert.ok(Math.abs(debit - analysis.entryDebit!) < 1e-10);
     assert.deepEqual(basis.legs.map(l => l.quantity), analysis.legs.map(l => l.quantity));
     assert.deepEqual(snapshot, before);
-    assert.match(actual.scenario.label, strategy === 'wheel' ? /put inicial/ : strategy === 'gamma' ? /Gamma/ : /Backspread/);
+    assert.match(actual.scenario.label, strategy === 'wheel' ? /put inicial/ : strategy === 'pmcc' ? /PMCC/ : strategy === 'gamma' ? /Gamma/ : /Backspread/);
   }
 });
 
@@ -29,9 +29,13 @@ test('adjusted deliverables preserve exercise and premium units instead of assum
   assert.equal(leg.units, 150); assert.equal(leg.strike * 150, 9500); assert.equal(leg.premium * 150, 200);
 });
 
-test('incomplete data, PMCC and discrete dividends do not silently turn into a different scenario', () => {
+test('PMCC keeps two maturities while missing inputs and discrete dividends remain explicit', () => {
   const snapshot = researchFixture();
-  assert.equal(strategyMonteCarloScenario(snapshot, 'pmcc', 30).scenario, null);
+  const diagonal = strategyMonteCarloScenario(snapshot, 'pmcc', 30).scenario!;
+  assert.ok(diagonal);
+  assert.ok(diagonal.basis.legs.some(leg => leg.daysToExpiry! > diagonal.basis.days));
+  assert.ok(diagonal.basis.legs.some(leg => leg.daysToExpiry === diagonal.basis.days));
+  assert.match(diagonal.warnings.join(' '), /LEAPS conserva su vencimiento/);
   assert.equal(strategyMonteCarloScenario(snapshot, 'wheel', 30, { dividendModel: 'declared-cash' }).scenario, null);
   snapshot.macro.riskFreeRate = missingVariable('FRED', 'missing');
   assert.equal(strategyMonteCarloScenario(snapshot, 'wheel', 30).scenario, null);

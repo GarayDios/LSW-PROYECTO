@@ -40,7 +40,7 @@ class F5RequestError extends Error {
 }
 const post = <T,>(body: unknown) => api<T>('/api/f5', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export default function F5Panel({ underlying: initialUnderlying, initialStrategy, mode = 'trade', allowTrading=false }: { underlying: string; initialStrategy: StrategyId; mode?: 'trade' | 'orders' | 'portfolio'; allowTrading?:boolean }) {
+export default function F5Panel({ underlying: initialUnderlying, initialStrategy, initialWheelPhase = 'put', mode = 'trade', allowTrading=false }: { underlying: string; initialStrategy: StrategyId; initialWheelPhase?: 'put' | 'call'; mode?: 'trade' | 'orders' | 'portfolio'; allowTrading?:boolean }) {
   const [tab, setTab] = useState<'operations' | 'report'>('operations');
   const [status, setStatus] = useState<F5Status | null>(null);
   const [statusError, setStatusError] = useState('');
@@ -48,7 +48,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const [refreshing, setRefreshing] = useState(false);
   const [strategy, setStrategy] = useState<StrategyId>(initialStrategy);
   const [underlying, setUnderlying] = useState(initialUnderlying);
-  const [wheelPhase, setWheelPhase] = useState<'put' | 'call'>('put');
+  const [wheelPhase, setWheelPhase] = useState<'put' | 'call'>(initialWheelPhase);
   const [expiry, setExpiry] = useState(nextFriday);
   const [longExpiry, setLongExpiry] = useState(() => nextFriday(1));
   const [contracts, setContracts] = useState<F5Contract[]>([]);
@@ -104,7 +104,7 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     const timer = setInterval(() => { if (!busyRef.current) void refresh(); }, 15000);
     return () => { mounted.current = false; statusSequence.current++; chainSequence.current++; rollSequence.current++; formSequence.current++; clearInterval(timer); };
   }, [refresh]);
-  useEffect(() => { setUnderlying(initialUnderlying); setStrategy(initialStrategy); setSelection(['', '']); setPreview(null); setManagement(null); formSequence.current++; }, [initialUnderlying, initialStrategy]);
+  useEffect(() => { setUnderlying(initialUnderlying); setStrategy(initialStrategy); setWheelPhase(initialWheelPhase); setSelection(['', '']); setPreview(null); setManagement(null); formSequence.current++; }, [initialUnderlying, initialStrategy, initialWheelPhase]);
   useEffect(() => {
     if (!preview) return;
     setNow(Date.now());

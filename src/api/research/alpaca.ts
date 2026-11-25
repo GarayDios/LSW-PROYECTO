@@ -149,9 +149,11 @@ export async function fetchAlpacaOptions(config: AlpacaResearchConfig | undefine
         theta: quoteVar(greeks.theta, 'theta publicada'), vega: quoteVar(greeks.vega, 'vega publicada'),
       });
     }
+    const quotedContracts=contracts.filter(contract=>contract.premium.value!==null).length;
+    if(contracts.length&&!quotedContracts)warnings.push('Hay contratos pero ninguna cotización reciente válida. Consulta durante la sesión o elige explícitamente un escenario estimado; las cotizaciones antiguas no se usan como actuales.');
     return { contracts, feed, complete, warnings, status: {
-      source: 'Alpaca opciones', status: complete && contracts.length ? 'ready' : 'partial',
-      message: contracts.length ? `${contracts.length} contratos encontrados; ${contracts.filter(contract => contract.premium.value !== null).length} con cotización válida de hasta una hora. Feed ${feed}; esto no garantiza todas las entradas del modelo.` : 'No hay contratos coincidentes con snapshot y metadatos observados.',
+      source: 'Alpaca opciones', status: complete && contracts.length && quotedContracts ? 'ready' : 'partial',
+      message: contracts.length ? `${contracts.length} contratos encontrados; ${quotedContracts} con cotización válida de hasta una hora. Feed ${feed}; esto no garantiza todas las entradas del modelo.` : 'No hay contratos coincidentes con snapshot y metadatos observados.',
     } };
   } catch (error) { return { contracts: [], feed, complete: false, status: providerFailure('Alpaca opciones', error), warnings }; }
 }
