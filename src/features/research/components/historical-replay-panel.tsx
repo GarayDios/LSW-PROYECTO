@@ -10,25 +10,13 @@ import {analysisPolicy,type AnalysisSettings} from '../analysis-settings';
 import {modelDividendYield} from '../contract-terms';
 import {strategies} from '../../strategies/catalog';
 import HistoricalReplayChart from './historical-replay-chart';
+import PnlPlot from './replay-pnl-plot';
 import {HistoricalPointInspector,HistoricalPositionDetails} from './historical-point-inspector';
 import './strategy-recommender.css';
 import './historical-replay.css';
 const money=(value:number|null)=>value===null?'Sin calcular':value.toLocaleString('en-US',{style:'currency',currency:'USD'});
 const date=(time:number)=>new Date(time).toISOString().slice(0,10);
 const EMPTY_BARS:CompanyResearch['market']['bars']=[];
-function PnlPlot({values,cursorTime,onSelect}:{values:{time:number;value:number}[];cursorTime:number;onSelect:(time:number)=>void}){
-  if(!values.length)return null;
-  const low=Math.min(0,...values.map(p=>p.value)),high=Math.max(0,...values.map(p=>p.value)),range=Math.max(1,high-low);
-  const x=(i:number)=>65+i/Math.max(1,values.length-1)*640,y=(value:number)=>220-(value-low)/range*170;
-  const index=values.findIndex(p=>p.time===cursorTime);
-  return <svg viewBox="0 0 760 270" role="img" aria-label="Pérdida o ganancia teórica sobre precios posteriores" onPointerDown={event=>{const rect=event.currentTarget.getBoundingClientRect();const f=((event.clientX-rect.left)/rect.width*760-65)/640;onSelect(values[Math.max(0,Math.min(values.length-1,Math.round(f*(values.length-1))))].time);}}>
-    <title>Resultado neto de la estrategia; selecciona un punto para inspeccionarlo</title><text x="65" y="24" fill="#a6b6c9">P/L TEÓRICO NETO · USD</text><line x1="65" x2="705" y1={y(0)} y2={y(0)} stroke="#576773" strokeDasharray="5 5"/>
-    <text x="60" y="49" textAnchor="end" fill="#a6b6c9">{high.toFixed(2)}</text><text x="60" y="224" textAnchor="end" fill="#a6b6c9">{low.toFixed(2)}</text>
-    <path d={values.map((p,i)=>(i?'L':'M')+x(i)+','+y(p.value)).join(' ')} fill="none" stroke="#f4bd63" strokeWidth="2"/>
-    {index>=0&&<g><line x1={x(index)} x2={x(index)} y1="40" y2="225" stroke="#cbddeb" strokeDasharray="4 4"/><circle cx={x(index)} cy={y(values[index].value)} r="4" fill="#edf3fc"/></g>}
-    <text x="65" y="253" fill="#a6b6c9">{date(values[0].time)}</text><text x="705" y="253" textAnchor="end" fill="#a6b6c9">{date(values.at(-1)!.time)}</text>
-  </svg>;
-}
 export default function HistoricalReplayPanel({research,strategy,days,settings,provider,demo,start}:{research:CompanyResearch|null;strategy:StrategyId;days:number;settings:AnalysisSettings;provider:'alpaca'|'webull';demo:boolean;start:string}){
   const bars=research?.market.bars??EMPTY_BARS;
   const strategyTitle=strategies.find(item=>item.id===strategy)?.title??strategy;

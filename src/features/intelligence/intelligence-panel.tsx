@@ -42,9 +42,9 @@ export default function IntelligencePanel({ symbol, research, loading, error, de
 
   return <section className="panel intelligence-panel" aria-label="Core de Inteligencia Artificial">
     <div className="intelligence-heading"><div><span className="intelligence-kicker">CORE DE INTELIGENCIA ARTIFICIAL</span>
-      <h2>Predicción y preferencias para {symbol}</h2></div><span className="neutral-badge">Modelo experimental</span></div>
+      <h2>Tu perfil y la evidencia de {symbol}</h2></div><span className="neutral-badge">Modelo experimental</span></div>
     <p>Define qué buscas y cuánto puedes arriesgar. La IA estima el movimiento del subyacente con cierres históricos y compara las estrategias que respetan tu perfil.</p>
-    <details className="intelligence-preferences" open>
+    <details className="intelligence-preferences">
       <summary>Tus preferencias</summary>
       <form onSubmit={apply}>
         <div className="intelligence-fields">
@@ -75,6 +75,14 @@ export default function IntelligencePanel({ symbol, research, loading, error, de
           <div><span>Comparables al alza · frecuencia ponderada</span><strong>{percent(forecast.risingComparableFraction)}</strong></div>
         </div>}
         <p role="status">{forecast.reason}</p>
+        {forecast.diagnostics&&<div className="intelligence-diagnostics"><div className="intelligence-diagnostics-heading"><h3>¿Qué respalda esta estimación?</h3><span className="neutral-badge">{forecast.diagnostics.ready?'Evidencia suficiente para revisar':'Requiere cautela'}</span></div><div className="intelligence-metrics">
+          <div><span>Mejora del error frente a retorno cero</span><strong>{percent(forecast.diagnostics.overall.improvementVsNoChange)}</strong></div>
+          <div><span>Mejora frente a media histórica</span><strong>{percent(forecast.diagnostics.overall.improvementVsHistoricalMean)}</strong></div>
+          <div><span>Últimos ocho periodos</span><strong>{forecast.diagnostics.recentPassed?'Superan ambas referencias':'Sin mejora suficiente'}</strong></div>
+          <div><span>Cobertura observada del rango P10–P90</span><strong>{percent(forecast.diagnostics.overall.comparableRangeCoverage)}</strong></div>
+        </div><p>La cobertura indica cuántos resultados de prueba cayeron dentro del rango que se calculó entonces. No garantiza la cobertura futura.</p>
+          <details><summary>Variables y situaciones históricas comparadas</summary><p>{forecast.neighbors} comparables; {forecast.diagnostics.effectiveNeighbors.toFixed(1)} efectivos por sus pesos. La distancia estandarizada mide similitud, no importancia causal.</p><div className="intelligence-table-scroll"><table><thead><tr><th>Variable</th><th>Valor actual</th><th>Media de comparables</th><th>Cobertura</th></tr></thead><tbody>{forecast.diagnostics.features.map(feature=><tr key={feature.label}><td>{feature.label}</td><td>{percent(feature.value)}</td><td>{percent(feature.comparableMean)}</td><td>{feature.outsideTrainingRange?'Fuera del rango entrenado':'Dentro del rango'}</td></tr>)}</tbody></table></div><p>Momentum y distancia se expresan como retornos logarítmicos; volatilidad diaria, sin anualizar.</p><div className="intelligence-table-scroll"><table><thead><tr><th>Decisión histórica</th><th>Resultado conocido</th><th>Retorno</th><th>Peso</th></tr></thead><tbody>{forecast.comparables?.map(row=><tr key={row.outcomeAt}><td>{row.originAt?.slice(0,10)??'Sin dato'}</td><td>{row.outcomeAt.slice(0,10)}</td><td>{percent(row.return)}</td><td>{percent(row.weight)}</td></tr>)}</tbody></table></div></details>
+        </div>}
         {recommendation && <div className="intelligence-result" aria-live="polite"><h3>{recommendation.title}</h3><p>{recommendation.reason}</p>
           <p>Capital máximo para una estructura: {money(recommendation.capitalLimit)}. Pérdida máxima aceptada: {money(recommendation.lossLimit)}.</p>
           {recommendation.best && <button className="secondary-button" onClick={() => onChoose(recommendation.best!.strategy)}>Ver estrategia sugerida en el explorador</button>}

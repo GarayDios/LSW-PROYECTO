@@ -1,0 +1,7 @@
+.chart-zoom-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px 18px;padding:12px 16px;border-block:1px solid #293544;background:#101a2580;min-width:0;font-size:.875rem;color:#b3c1d1}
+.chart-zoom-buttons,.chart-zoom-pan{display:flex;align-items:center;gap:7px;min-width:0}
+.chart-zoom-buttons>span{min-width:48px;text-align:center;font-variant-numeric:tabular-nums;color:#e4edf6}
+.chart-zoom-controls button{display:inline-flex;align-items:center;justify-content:center;min-height:36px;min-width:36px;border:1px solid #3a4859;border-radius:6px;background:#172332;color:#d7e4f1;padding:6px 10px;font-size:.875rem;cursor:pointer}
+.chart-zoom-buttons>button:not(.chart-zoom-reset){font-size:1.25rem}.chart-zoom-controls button:disabled{opacity:.35;cursor:default}.chart-zoom-controls button:not(:disabled):hover{border-color:#ff934f88;color:#ffb279}.chart-zoom-controls button:focus-visible,.chart-zoom-controls input:focus-visible{outline:2px solid #ffae70;outline-offset:3px}
+.chart-zoom-pan{flex:1 1 230px;max-width:420px}.chart-zoom-pan input{width:100%;min-width:50px;accent-color:#ff934f}.chart-zoom-help{font-size:.8125rem;color:#9cafc3}
+@media(max-width:600px){.chart-zoom-controls{padding:12px;gap:12px}.chart-zoom-pan{flex-basis:100%;max-width:none}.chart-zoom-controls button{min-height:40px}.chart-zoom-help{flex-basis:100%}}

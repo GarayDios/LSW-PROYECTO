@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import { installMonteCarloQA, runMonteCarloScenario } from './monte-carlo-browser-scenario.mjs';
 import {installRecommenderQA,runRecommenderScenario} from './recommender-browser-scenario.mjs';
+import {runZoomScenario} from './zoom-browser-scenario.mjs';
 import { installNewsQA, runNewsScenario } from './news-browser-scenario.mjs';
 import {mkdir,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -29,7 +30,7 @@ try{
   async function reload(){const origin=await evaluate('performance.timeOrigin');await send('Page.reload');await until(`performance.timeOrigin>${origin}`);}
   async function click(text){const clicked=await evaluate(`(()=>{const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)});if(e){e.click();return true;}return false;})()`);assert(clicked,'Missing button '+text);await delay(150);}
   async function input(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('input[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Missing input '+label);await delay(100);}
-  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}if(name.startsWith('intelligence-')){await evaluate("document.querySelector('.intelligence-panel').scrollIntoView()");await delay(150);}if(name.startsWith('technical-')){await evaluate("document.querySelector('.chart-panel').scrollIntoView()");await delay(150);}if(name.startsWith('fundamental-')){await evaluate("document.querySelector('.fundamental-analysis').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
+  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('historical-chart')){await evaluate("document.querySelector('.replay-chart').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('historical-pnl')){await evaluate("document.querySelector('.replay-pnl-card').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}if(name.startsWith('intelligence-')){await evaluate("document.querySelector('.intelligence-panel').scrollIntoView()");await delay(150);}if(name.startsWith('technical-')){await evaluate("document.querySelector('.chart-panel').scrollIntoView()");await delay(150);}if(name.startsWith('fundamental-')){await evaluate("document.querySelector('.fundamental-analysis').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
   await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   if(mode==='persistence'){
     // Exercise the real UI in isolation. Only its persistence endpoint is mocked;
@@ -88,7 +89,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installPersistenceQA.toString()})();`});
   }
-  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
+  if(mode==='history'||mode==='automation'||mode==='comparison'||mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='zoom'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
     // A tagged provider fixture checks the real chart and controls without
     // claiming a live Alpaca connection or requiring trading credentials.
     function installHistoryQA(){
@@ -163,7 +164,7 @@ try{
     }
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installComparisonQA.toString()})();`});
   }
-  if(mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
+  if(mode==='strategies'||mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='zoom'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
     function installStrategyQA(automatic=false){
       const qa=window.__strategyQA={fail:false};
       const originalFetch=window.fetch.bind(window);
@@ -184,9 +185,9 @@ try{
           macro:{treasury3MonthPercent:v(4),riskFreeRate:v(.04),inflationYearOverYear:v(.02),realGdpGrowth:v(.03),status,warnings:[]},news:{articles:[],complete:true,status,warnings:[]},quality:{historicalOnly:false,missing:automatic?[]:['dividendYield'],stale:[],sources:[status]},warnings:['QA: no son datos de mercado reales']};window.__deliveryResearch=research;return Response.json({research});
       };
     }
-    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='recommender'||mode==='news'});`});
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installStrategyQA.toString()})(${mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='zoom'||mode==='monte-carlo'||mode==='recommender'||mode==='news'});`});
   }
-  if(mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
+  if(mode==='delivery'||mode==='manual'||mode==='intelligence'||mode==='technical'||mode==='zoom'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
     function installDeliveryQA(){
       const qa=window.__delivery={phase:'submitted',mutations:[],rankingRequests:[]};
       const originalFetch=window.fetch.bind(window);
@@ -221,7 +222,7 @@ try{
   if(mode==='intelligence'){
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installIntelligenceQA.toString()})();`});
   }
-  if(mode==='technical'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
+  if(mode==='technical'||mode==='zoom'||mode==='monte-carlo'||mode==='recommender'||mode==='news'){
     await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installTechnicalQA.toString()})(${JSON.stringify(technicalFundamentalFixture())});`});
   }
   if(mode==='news')await send('Page.addScriptToEvaluateOnNewDocument',{source:`(${installNewsQA.toString()})();`});
@@ -246,6 +247,8 @@ try{
     await runMonteCarloScenario({evaluate,click,input,until,screenshot});
   }else if(mode==='recommender'){
     await runRecommenderScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='zoom'){
+    await runZoomScenario({evaluate,click,input,until,screenshot});
   }else if(mode==='technical'){
     await runTechnicalScenario({evaluate,click,input,until,screenshot});
   }else if(mode==='intelligence'){

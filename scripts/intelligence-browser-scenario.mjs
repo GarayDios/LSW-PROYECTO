@@ -3,10 +3,17 @@ import assert from 'node:assert/strict';
 /** Browser-only provider fixture; all writes and broker/account calls are intercepted. */
 export function installIntelligenceQA() {
   const original = window.fetch.bind(window);
-  const qa = window.__intelligenceQA = { shortHistory: false, bullishHistory: false, mutations: [] };
+  const qa = window.__intelligenceQA = { shortHistory: false, bullishHistory: false, mutations: [], chatRequests: [], failChat: false, slowChat: false, partialChat: false };
   window.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, location.href);
     if (url.origin !== location.origin) return original(input, init);
+    if(url.pathname==='/api/intelligence'){
+      if((init?.method??'GET')==='GET')return Response.json({configured:true,model:'QA fixture'});
+      const body=JSON.parse(init.body);qa.chatRequests.push(body);
+      await new Promise((resolve,reject)=>{const timer=setTimeout(resolve,qa.slowChat?10000:150);init.signal?.addEventListener('abort',()=>{clearTimeout(timer);reject(new DOMException('Aborted','AbortError'));},{once:true});});
+      if(qa.failChat)return Response.json({error:{message:'QA: OpenRouter no disponible'}},{status:503});
+      return Response.json({answer:`QA: revisión de ${body.symbol}. Con este perfil conviene esperar y revisar la evidencia. Pregunta recibida: ${body.messages.at(-1).content}`,truncated:qa.partialChat,model:'QA fixture',asOf:body.provider==='demo'?null:new Date().toISOString(),dataError:null,recommendation:{action:'wait',title:'Esperar antes de abrir una operación',reason:'QA: evidencia insuficiente para una propuesta específica.',best:null,alternatives:[],capitalLimit:5000,lossLimit:400}});
+    }
     if (url.pathname.startsWith('/api/') && (init?.method ?? 'GET') !== 'GET') {
       qa.mutations.push(url.pathname);
       return Response.json({ error: { message: 'La prueba de IA no autoriza escrituras ni órdenes.' } }, { status: 409 });
@@ -39,53 +46,52 @@ export function installIntelligenceQA() {
   };
 }
 
-export async function runIntelligenceScenario({ evaluate, click, until, screenshot }) {
-  await until(`document.querySelector('.intelligence-metrics')`);
-  assert.equal(await evaluate(`document.querySelector('.research-panel a[href^="https://finviz.com/stock"]').href`), 'https://finviz.com/stock?t=NVDA', 'Finviz is an external reference; SEC remains the fundamental data source');
-  const prediction = await evaluate(`document.querySelector('.intelligence-metrics strong').textContent`);
-  await evaluate(`(() => {
-    const form = document.querySelector('.intelligence-preferences form');
-    form.elements.objective.value = 'growth';
-    form.elements.capital.value = '100000';
-    form.elements.maxLossPercent.value = '0';
-    form.elements.experience.value = 'advanced';
-    form.querySelectorAll('input[name=strategy]').forEach(input => { input.checked = false; });
-  })()`);
+export async function runIntelligenceScenario({evaluate,click,until,screenshot}) {
+  await evaluate(`Array.from(document.querySelectorAll('.side-nav button')).find(e=>e.textContent.includes('Asistente IA')).click()`);
+  await until(`document.querySelector('.intelligence-chat')&&document.querySelector('.intelligence-chat-context').textContent.includes('OpenRouter configurado')`);
+  const ask=async text=>{await evaluate(`(()=>{const e=document.querySelector('#intelligence-question');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(text)});e.dispatchEvent(new Event('input',{bubbles:true}));})()`);await click('Preguntar');};
+  await ask('Compara mi perfil y mi capital.');
+  await until(`document.querySelectorAll('.intelligence-message-assistant').length===1`);
+  await evaluate(`Array.from(document.querySelectorAll('.workspace-mode-tabs button')).find(e=>e.textContent.startsWith('Simulaci')).click()`);
+  await evaluate(`Array.from(document.querySelectorAll('.side-nav button')).find(e=>e.textContent.includes('Asistente IA')).click()`);
+  await until(`document.querySelector('.intelligence-chat').getClientRects().length>0`);
+  assert.equal(await evaluate(`document.querySelectorAll('.intelligence-message-assistant').length`),1,'Conversation survives navigation between sections');
+  await ask('Y con menos capital?');
+  await until(`document.querySelectorAll('.intelligence-message-assistant').length===2`);
+  assert.equal(await evaluate('window.__intelligenceQA.chatRequests.at(-1).messages.length'),3,'Follow-up includes preceding question and answer');
+  assert(await evaluate(`!!document.querySelector('.intelligence-chat-recommendation')`),'Verified recommendation card is separate from generated prose');
+  await evaluate(`document.querySelector('.intelligence-preferences').open=true`);
+  await evaluate(`document.querySelector('.intelligence-preferences form').elements.capital.value='100000'`);
   await click('Aplicar preferencias');
-  await until(`document.querySelector('.intelligence-panel').textContent.includes('Preferencias aplicadas a esta sesión')`);
-  assert.equal(await evaluate(`document.querySelector('.intelligence-metrics strong').textContent`), prediction, 'Preferences cannot change the forecast at the same horizon');
-  assert(await evaluate(`document.querySelector('.intelligence-result h3').textContent.includes('Esperar')`));
-  assert.equal(await evaluate(`document.querySelector('.intelligence-result button')`), null, 'No eligible strategy means no review action');
-  await evaluate(`document.querySelector('.intelligence-preferences select[name=horizonSessions]').value='5'`);
-  await click('Aplicar preferencias');
-  await until(`document.querySelector('.intelligence-evidence').textContent.includes('5 sesiones')`);
-  await evaluate(`document.querySelector('.intelligence-preferences').open=false;document.querySelector('.intelligence-panel').scrollIntoView()`);
-  await screenshot('intelligence-desktop.png', 1440, 1100);
-  await screenshot('intelligence-mobile.png', 390, 844);
-  assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), 'Intelligence mobile fits the viewport');
-  await evaluate(`window.__intelligenceQA.bullishHistory=true;(() => {const select=document.querySelector('select[aria-label="Empresa del gráfico"]');select.value='AAPL';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await until(`document.querySelector('.intelligence-panel h2').textContent.includes('AAPL')&&document.querySelector('.intelligence-metrics')`);
-  assert.equal(await evaluate(`document.querySelector('.research-panel a[href^="https://finviz.com/stock"]').href`), 'https://finviz.com/stock?t=AAPL');
-  await evaluate(`(() => {
-    const form = document.querySelector('.intelligence-preferences form');
-    form.elements.objective.value = 'income';
-    form.elements.riskTolerance.value = 'medium';
-    form.elements.maxLossPercent.value = '20';
-    form.elements.horizonSessions.value = '20';
-    form.elements.experience.value = 'intermediate';
-    form.querySelectorAll('input[name=strategy]').forEach(input => { input.checked = true; });
-  })()`);
-  await click('Aplicar preferencias');
-  await until(`document.querySelector('.intelligence-result h3').textContent.includes('Revisar The Wheel')`);
-  await evaluate(`Array.from(document.querySelectorAll('.strategy-option')).find(button=>button.textContent.includes('Call Ratio Backspread')).click()`);
-  await click('Ver estrategia sugerida en el explorador');
-  await until(`Array.from(document.querySelectorAll('.strategy-option')).some(button=>button.textContent.includes('The Wheel')&&button.getAttribute('aria-checked')==='true')`);
-  await evaluate(`window.__intelligenceQA.shortHistory=true;(() => {const select=document.querySelector('select[aria-label="Empresa del gráfico"]');select.value='MSFT';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await until(`document.querySelector('.intelligence-panel').textContent.includes('Falta histórico')`);
-  assert(await evaluate(`!document.querySelector('.intelligence-metrics')`), 'Insufficient history removes the previous forecast');
-  await evaluate(`(() => {const select=document.querySelector('select[aria-label="Fuente del histórico"]');select.value='demo';select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await until(`document.querySelector('.intelligence-panel').textContent.includes('La demostración no genera predicciones')`);
-  assert(await evaluate(`!document.querySelector('.intelligence-result')`));
-  assert.deepEqual(await evaluate('window.__intelligenceQA.mutations'), [], 'Preference changes never write or send orders');
-  console.log('PASS: AI preferences, independent price forecast, horizon, wait/review results, selection of suggested strategy, company changes, insufficient history, demo guard and mobile. Provider fixtures only; no orders or remote writes.');
+  await ask('Revisa mi nuevo capital.');
+  await until(`document.querySelectorAll('.intelligence-message-assistant').length===3`);
+  assert.equal(await evaluate('window.__intelligenceQA.chatRequests.at(-1).preferences.capital'),100000,'Applied profile reaches assistant');
+  await evaluate('window.__intelligenceQA.failChat=true');
+  await ask('Pregunta que falla');
+  await until(`!!document.querySelector('.intelligence-chat-error')`);
+  assert.equal(await evaluate(`document.querySelector('#intelligence-question').value`),'Pregunta que falla','Failed questions remain available to retry');
+  await evaluate('window.__intelligenceQA.failChat=false;window.__intelligenceQA.slowChat=true');
+  await click('Preguntar');await until(`!!document.querySelector('.intelligence-thinking')`);await click('Detener');
+  await until(`!document.querySelector('.intelligence-thinking')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.intelligence-message-assistant').length`),3,'Cancelled generation cannot add an answer');
+  await evaluate('window.__intelligenceQA.slowChat=false');
+  await click('Nueva conversación');
+  await until(`!!document.querySelector('.intelligence-chat-empty')`);
+  await evaluate('window.__intelligenceQA.partialChat=true');
+  await ask('Explica mi perfil.');
+  await until(`!!document.querySelector('.intelligence-partial-response')`);
+  assert(await evaluate(`document.querySelectorAll('.intelligence-message-assistant').length===1&&!document.querySelector('.intelligence-chat-error')`),'Partial answer is preserved as a message');
+  await evaluate('window.__intelligenceQA.partialChat=false');
+  await click('Continuar respuesta');
+  await until(`document.querySelectorAll('.intelligence-message-assistant').length===2`);
+  assert(await evaluate(`window.__intelligenceQA.chatRequests.at(-1).messages.at(-1).content.startsWith('Continúa')`),'Continuation includes the partial-answer context');
+  await click('Nueva conversación');
+  await screenshot('assistant-desktop.png',1440,1100);
+  await screenshot('assistant-mobile.png',390,844);
+  assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Assistant fits mobile');
+  await ask('Explica Wheel.');await until(`document.querySelectorAll('.intelligence-message-assistant').length===1`);
+  await evaluate(`(()=>{const e=document.querySelector('select[aria-label="Empresa del análisis"]');e.value='AAPL';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(`document.querySelector('.intelligence-chat-context').textContent.includes('AAPL')&&document.querySelector('.intelligence-chat-empty')`);
+  assert.deepEqual(await evaluate('window.__intelligenceQA.mutations'),[],'Chat does not call trading or persistence endpoints');
+  console.log('PASS: assistant navigation, follow-up context, applied preferences, verified recommendation, retry, cancellation, company reset and mobile. Mock OpenRouter; no model charges or orders.');
 }

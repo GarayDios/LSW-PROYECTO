@@ -16,6 +16,8 @@ import type { ChartNewsState } from '../hooks/use-chart-news';
 import './chart-studies.css';
 import type { MarketSource } from '../hooks/use-market-history';
 import type { ScannerProjection } from '../../../cores/evaluacion/scanner';
+import {useChartZoom,useChartWheelZoom} from '../hooks/use-chart-zoom';
+import ChartZoomControls from './chart-zoom-controls';
 
 type MarketChartProps = {
   projection?: ScannerProjection | null;
@@ -75,16 +77,20 @@ export default function MarketChart(props: MarketChartProps) {
   const loadedHistory = props.history ?? generated;
   const [viewWindow, setViewWindow] = useState<'all' | '6m' | '3m'>('all');
   const history = useMemo(() => viewWindow === 'all' ? loadedHistory : loadedHistory.filter(bar => bar.time >= (loadedHistory.at(-1)?.time ?? 0) - (viewWindow === '6m' ? 183 : 93) * 86400000), [loadedHistory, viewWindow]);
-  const candles = useMemo(() => aggregateCandles(history), [history]);
   const issue = historyIssue(startDate, endDate);
   if (props.loading) return <div className="history-loading" role="status">Consultando las velas del rango seleccionado…</div>;
   if (props.error) return <div className="history-query-error" role="alert"><p>{props.error}</p>{props.error.includes("Inicia sesión") && <a className="primary-button small" href="/signin-with-chatgpt?return_to=%2F" target="_self">Iniciar sesión para consultar datos</a>}{props.onRetry && <button className="secondary-button" onClick={props.onRetry}>Volver a consultar</button>}</div>;
-  if (!candles.length) return <div className="history-empty" role="status">{issue || 'No hay sesiones entre estas fechas. Elige un rango que incluya lunes a viernes.'}</div>;
-  return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, optionLevels, volatility, days, rate, dividendYield }} candles={candles} history={history} loadedHistory={loadedHistory} viewWindow={viewWindow} onViewWindow={setViewWindow}/>;
+  if (!history.length) return <div className="history-empty" role="status">{issue || 'No hay sesiones entre estas fechas. Elige un rango que incluya lunes a viernes.'}</div>;
+  return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, optionLevels, volatility, days, rate, dividendYield }} history={history} loadedHistory={loadedHistory} viewWindow={viewWindow} onViewWindow={setViewWindow}/>;
 }
 
-function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news, projection }: MarketChartProps & {candles: Candle[]; history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
+function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news, projection:fullProjection }: MarketChartProps & {history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
   const [hovered, setHovered] = useState<number | null>(null);
+  const zoom=useChartZoom(fullHistory,`${symbol}/${source}/${interval}/${startDate}/${endDate}/${viewWindow}`,12);
+  const history=zoom.visible;
+  const candles=useMemo(()=>aggregateCandles(history),[history]);
+  const projection=zoom.end===fullHistory.length?fullProjection:null;
+  useEffect(()=>setHovered(null),[zoom.start,zoom.end]);
   const [selectedNews, setSelectedNews] = useState<string | null>(null);
   const newsDetailsId = useId();
   const container = useRef<HTMLDivElement>(null);
@@ -96,12 +102,14 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   }, []);
   const WIDTH = Math.max(720, viewportWidth), RIGHT = WIDTH - 88;
   const dataRight = projection ? RIGHT - Math.min(190, (RIGHT - LEFT) * .24) : RIGHT;
+  const zoomSurface=useChartWheelZoom(zoom.change,LEFT,dataRight);
   const newsHeight = studies.news ? 64 : 0, volumeBottom = VOLUME_BOTTOM + newsHeight, height = HEIGHT + newsHeight;
   const newsSnapshot = news?.snapshot?.symbol === symbol && (source !== 'demo' || news.snapshot.news.articles.every(a => a.headline.startsWith('DEMO:'))) ? news.snapshot : null;
-  const newsViewStart = viewWindow === 'all' ? startDate! : newsSessionDate(history[0].time);
+  const newsViewStart = viewWindow === 'all'&&!zoom.isZoomed ? startDate! : newsSessionDate(history[0].time);
+  const newsViewEnd = zoom.isZoomed ? newsSessionDate(history.at(-1)!.time) : endDate!;
   const newsGroups = useMemo(() => studies.news && newsSnapshot ? groupChartNews({ articles: newsSnapshot.news.articles,
-    history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: endDate!, left: LEFT, right: dataRight }) : [],
-    [studies.news, newsSnapshot, history, interval, newsViewStart, endDate, dataRight]);
+    history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: newsViewEnd, left: LEFT, right: dataRight }) : [],
+    [studies.news, newsSnapshot, history, interval, newsViewStart, newsViewEnd, dataRight]);
   const technicalBars = studyHistory ?? loadedHistory;
   const technical = useMemo(() => technicalAnalysis?.indicators ?? calculateTechnicalIndicators(technicalBars), [technicalAnalysis, technicalBars]);
   const structure = useMemo(() => technicalAnalysis?.structure ?? analyzeSupportResistance(technicalBars), [technicalAnalysis, technicalBars]);
@@ -112,7 +120,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   const modelAvailable = source === 'demo' || observedOption !== null;
   const bandVolatility = source === 'demo' ? volatility : historicalVolatility;
   const sigma = bandVolatility === null ? null : bandVolatility * Math.sqrt(Math.max(1, days) / 365);
-  const lastClose = history[history.length - 1].close;
+  const lastClose = fullHistory[fullHistory.length - 1].close;
   const strike = source === 'demo' ? Math.round(lastClose / 5) * 5 || lastClose : observedOption?.strike ?? 0;
   const inputs = {spot:observedOption?.spot??lastClose,strike,days:observedOption?.days??Math.max(1,days),volatility:observedOption?.volatility??volatility,rate:observedOption?.rate??rate,dividendYield:observedOption?.dividendYield??dividendYield,type:observedOption?.type??'call' as OptionType};
   const demoPremium = optionLevels && source === 'demo' ? blackScholes(inputs).price : null;
@@ -237,7 +245,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
     const location = Math.min(BOTTOM - (priceBadges.length - i - 1) * 23, Math.max(y(badge.value), priorBadgeY + 23));
     badgeY.set(badge.id, location); priorBadgeY = location;
   }
-  const validationX = validationStartTime === null ? null : Math.max(LEFT, x(bucketForTime(validationStartTime)) - step / 2);
+  const validationX = validationStartTime === null || validationStartTime>history.at(-1)!.time ? null : Math.max(LEFT, x(bucketForTime(validationStartTime)) - step / 2);
   const sourceLabel = source === 'demo' ? 'Datos simulados' : source==='webull'?'Histórico Webull Sandbox · ajuste por splits no declarado':`Histórico Alpaca · ${(feed ?? 'iex').toUpperCase()} · ajustado por splits`;
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
@@ -259,6 +267,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
       <div className="history-signal-legend"><span>{sourceLabel}</span>{signals.length > 0 && <><span className="buy">▲ Entrada por regla</span><span className="sell">▼ Salida por regla</span></>}{validationX !== null && <span className="validation">Zona azul: validación temporal</span>}</div>
       {onStudyToggle && <ChartStudyToolbar studies={studies} onToggle={onStudyToggle}/>}
       <div className="history-view-controls" role="group" aria-label="Ventana visible de la gráfica"><span>Vista</span>{([['all', 'Todo el rango'], ['6m', '6 meses'], ['3m', '3 meses']] as const).map(([value, label]) => <button key={value} className="secondary-button" aria-pressed={viewWindow === value} onClick={() => onViewWindow(value)}>{label}</button>)}<small>{history.length} velas en vista; el análisis y CSV conservan el rango cargado.</small></div>
+      <ChartZoomControls zoom={zoom} label="gráfica de mercado" id="market"/>
       <div className="chart-overlay-legend" aria-label="Leyenda de capas visibles">
         {studies.averages && <><span><i style={{background:'#e2bf80'}}/>Media 20</span><span><i style={{background:'#d8e2ee'}}/>Media 50</span></>}
         {studies.crosses && <span>◇ Cruce 20/50</span>}{studies.macd && <span>◇ MACD</span>}
@@ -267,7 +276,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         {projection && <><span style={{color:'#bd9aff'}}>Escenario por cores · línea punteada</span><span style={{color:'#8b98a5'}}>Referencia sin aporte de sentimiento · gris</span></>}
       </div>
       {viewportWidth < 720 && <p className="chart-scroll-hint">Desliza la gráfica horizontalmente para explorar las velas y los indicadores.</p>}
-      <div className="chart-price-surface" role="region" aria-label="Gráfica de precio e indicadores" tabIndex={0}>
+      <div className="chart-price-surface" role="region" aria-label="Gráfica de precio e indicadores" tabIndex={0} ref={zoomSurface}>
       <svg
         viewBox={`0 0 ${WIDTH} ${height}`}
         role="group"
@@ -379,10 +388,10 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
       <div className="history-inspection" aria-live="polite">{current && index !== null ? `${formatTime(current.time,false)}${bucketSize>1?` → ${formatTime(history[sourceIndices[index]].time,false)} · OHLC de hasta ${bucketSize} velas`:''} · O ${formatPrice(current.open)} · H ${formatPrice(current.high)} · L ${formatPrice(current.low)} · C ${formatPrice(current.close)} · V ${current.volume.toLocaleString('es-MX')}` : 'Explora las velas con el cursor o con las flechas del teclado para consultar fecha, OHLC y volumen.'}</div>
       {(optionLevels || studies.volatilityBands || studies.riskScenario) && <div className="chart-model-summary" aria-live="polite">
         {optionLevels && <p>{modelAvailable ? source === 'demo' ? 'Contrato de demostración: strike ATM y equilibrio con prima teórica BSM.' : `Contrato observado: ${observedOption!.contractSymbol}. El equilibrio corresponde a esta opción individual al vencimiento, antes de comisiones.` : 'Faltan datos verificables del contrato para mostrar su strike y equilibrio.'}</p>}
-        {(studies.volatilityBands || studies.riskScenario) && <p>{bandVolatility === null ? 'Sin volatilidad histórica disponible para dibujar las bandas y el escenario.' : `${source === 'demo' ? 'Volatilidad supuesta del escenario' : 'Volatilidad histórica observada (HV)'}: ${(bandVolatility * 100).toFixed(1)}% anual. Horizonte: ${Math.max(1, days)} días naturales desde el último cierre de la vista. ${studies.volatilityBands ? 'Bandas ±1σ; describen variabilidad, no un objetivo de precio.' : ''}`}</p>}
+        {(studies.volatilityBands || studies.riskScenario) && <p>{bandVolatility === null ? 'Sin volatilidad histórica disponible para dibujar las bandas y el escenario.' : `${source === 'demo' ? 'Volatilidad supuesta del escenario' : 'Volatilidad histórica observada (HV)'}: ${(bandVolatility * 100).toFixed(1)}% anual. Horizonte: ${Math.max(1, days)} días naturales desde el último cierre cargado. ${studies.volatilityBands ? 'Bandas ±1σ; describen variabilidad, no un objetivo de precio.' : ''}`}</p>}
         {studies.riskScenario && sigma !== null && <p>Escenario −2σ: caída ilustrativa de {(2 * sigma * 100).toFixed(1)}%. No representa pérdida máxima ni sustituye los límites de riesgo de la operación.</p>}
       </div>}
-      <p className="history-footnote">{source === 'demo' ? 'Datos sintéticos · sesiones lunes–viernes, sin festivos ni medias sesiones.' : source==='webull'?'Datos históricos del sandbox Webull; ajuste por splits no declarado.' : `Datos históricos ${(feed??'iex').toUpperCase()} · ${feed==='sip'?'cobertura consolidada según permisos de la cuenta':'IEX es una sola bolsa, no todo el volumen del mercado'}.`}{history.length>candles.length?` Vista agrupada en ${candles.length} velas; el CSV conserva las ${history.length} velas originales.`:''} Indicadores calculados sobre la serie original. Ocultar capas conserva los cálculos de señales y ranking.</p>
+      <p className="history-footnote">{source === 'demo' ? 'Datos sintéticos · sesiones lunes–viernes, sin festivos ni medias sesiones.' : source==='webull'?'Datos históricos del sandbox Webull; ajuste por splits no declarado.' : `Datos históricos ${(feed??'iex').toUpperCase()} · ${feed==='sip'?'cobertura consolidada según permisos de la cuenta':'IEX es una sola bolsa, no todo el volumen del mercado'}.`}{history.length>candles.length?` Vista agrupada en ${candles.length} velas; el CSV conserva las ${loadedHistory.length} velas originales.`:''} Indicadores calculados sobre la serie original. Ocultar capas conserva los cálculos de señales y ranking.</p>
       <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} aria-live="polite">
         {current ? `${symbol}: apertura ${formatPrice(current.open)}, máximo ${formatPrice(current.high)}, mínimo ${formatPrice(current.low)}, cierre ${formatPrice(current.close)}. ${sourceLabel}.` : ""}
       </span>

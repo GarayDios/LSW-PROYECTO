@@ -80,6 +80,7 @@ export function recommendForPreferences(input: {
         'Una estructura respeta tus límites de capital y pérdida máxima del modelo.'] : [...new Set(reasons)] };
   }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.strategy.localeCompare(b.strategy));
   if (!forecast.validation.passed) return waiting('El modelo todavía no demuestra mejora frente a las referencias históricas. Puedes revisar compatibilidad, pero no se propone abrir una operación.', alternatives, capitalLimit, lossLimit);
+  if (forecast.diagnostics && !forecast.diagnostics.ready) return waiting(forecast.diagnostics.blockers.join(' '), alternatives, capitalLimit, lossLimit);
   const best = alternatives.find(alternative => alternative.eligible) ?? null;
   if (!best) return waiting('Ninguna alternativa evaluada respeta todas tus preferencias y requisitos de datos.', alternatives, capitalLimit, lossLimit);
   return { action: 'review', title: `Revisar ${best.title}`, best, alternatives, capitalLimit, lossLimit,

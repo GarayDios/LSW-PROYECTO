@@ -32,7 +32,9 @@ La evidencia y los pasos para repetir la prueba de navegador están en [la docum
 - **Gráfica técnica:** paneles RSI/MACD, ATR y volumen relativo, soportes y
   resistencias confirmados sin retrotraer la fecha conocida, marcas de compra/venta
   y regla de confluencia opcional. Vistas de 3/6 meses conservan los datos del análisis
-  y del CSV. El fundamental añade 25 métricas posibles con cobertura y fuentes.
+  y del CSV. Mercado, simulación histórica y P/L incluyen zoom con +/−, Ctrl + rueda,
+  desplazamiento del tramo y restablecimiento de la vista, sin recalcular el análisis.
+  El fundamental añade 25 métricas posibles con cobertura y fuentes.
   Consulta [el estado verificable de los siete cores](docs/verificacion/estado-de-los-siete-cores.md).
 
 - **IA según preferencias:** pronóstico experimental con histórico diario observado,

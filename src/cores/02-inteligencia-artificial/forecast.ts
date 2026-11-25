@@ -1,5 +1,6 @@
 import type { Candle } from '../../features/market/chart-history.ts';
 import { deriveObservedMarket } from '../01-analisis-tecnico/market-analysis.ts';
+import { diagnoseForecast, FORECAST_FEATURES, type ForecastDiagnostics } from './diagnostics.ts';
 
 const LOOKBACK = 60;
 const MIN_NEIGHBORS = 8;
@@ -11,6 +12,7 @@ type Example = { origin: number; end: number; features: number[]; outcome: numbe
 export type ForecastValidationPeriod = {
   decisionAt: string; outcomeAt: string; lastTrainingOutcomeAt: string;
   predictedReturn: number; actualReturn: number; historicalMeanReturn: number;
+  lowerReturn?: number; upperReturn?: number;
 };
 export type MarketForecast = {
   symbol: string;
@@ -19,7 +21,8 @@ export type MarketForecast = {
   lastClose: number | null; lastCloseAt: string | null;
   expectedReturn: number | null; lowerReturn: number | null; upperReturn: number | null;
   risingComparableFraction: number | null; neighbors: number; trainingExamples: number;
-  comparables?: { return: number; weight: number; outcomeAt: string }[];
+  comparables?: { return: number; weight: number; outcomeAt: string; originAt?: string; distance?: number }[];
+  diagnostics?: ForecastDiagnostics;
   validation: {
     periods: ForecastValidationPeriod[]; modelMae: number | null;
     noChangeMae: number | null; historicalMeanMae: number | null;
@@ -79,7 +82,15 @@ function predict(examples: readonly Example[], target: number[], decision: numbe
     count: selected.length, trainingCount: training.length,
     latestOutcome: Math.max(...selected.map(candidate => candidate.row.end)),
     baseline: mean(baseline.map(row => row.outcome)),
-    comparables: weighted.map(row=>({return:row.outcome,weight:row.weight/totalWeight,end:row.end})),
+    comparables: weighted.map((row,index)=>({return:row.outcome,weight:row.weight/totalWeight,end:row.end,origin:row.origin,distance:selected[index].distance})),
+    features: target.map((value, column) => {
+      const values = training.map(row => row.features[column]);
+      const trainingMin = Math.min(...values), trainingMax = Math.max(...values);
+      const comparableMean = weighted.reduce((sum, row) => sum + row.features[column] * row.weight, 0) / totalWeight;
+      return { label: FORECAST_FEATURES[column], value, comparableMean, trainingMin, trainingMax,
+        standardizedGap: Math.abs(value - comparableMean) / scales[column],
+        outsideTrainingRange: value < trainingMin || value > trainingMax };
+    }),
   };
 }
 
@@ -133,19 +144,21 @@ export function forecastMarket(input: {
     periods.push({ decisionAt: timestamp(bars[decision]), outcomeAt: timestamp(bars[decision + h]),
       lastTrainingOutcomeAt: timestamp(bars[prediction.latestOutcome]),
       predictedReturn: prediction.expected, actualReturn: bars[decision + h].close / bars[decision].close - 1,
-      historicalMeanReturn: prediction.baseline });
+      historicalMeanReturn: prediction.baseline, lowerReturn: prediction.lower, upperReturn: prediction.upper });
   }
   const modelMae = periods.length ? mean(periods.map(period => Math.abs(period.actualReturn - period.predictedReturn))) : null;
   const noChangeMae = periods.length ? mean(periods.map(period => Math.abs(period.actualReturn))) : null;
   const historicalMeanMae = periods.length ? mean(periods.map(period => Math.abs(period.actualReturn - period.historicalMeanReturn))) : null;
   const passed = periods.length >= MIN_VALIDATION_PERIODS && modelMae !== null && noChangeMae !== null && historicalMeanMae !== null
     && modelMae < Math.min(noChangeMae, historicalMeanMae) * .98;
+  const diagnostics = diagnoseForecast({ periods, passed, features: current.features, weights: current.comparables.map(row => row.weight) });
   return { ...base, status: 'available',
-    reason: passed ? 'El error histórico del modelo fue menor que ambas referencias. Es evidencia experimental de esta muestra.'
-      : `Modelo experimental: requiere ${MIN_VALIDATION_PERIODS} periodos de prueba y mejorar al menos 2% el error de ambas referencias para proponer una estrategia.`,
+    reason: diagnostics.ready ? 'El modelo mejora ambas referencias en la muestra global y reciente, con variables dentro del histórico observado. Evidencia experimental.'
+      : `Modelo experimental: ${diagnostics.blockers.join(' ')}`,
     expectedReturn: current.expected, lowerReturn: current.lower, upperReturn: current.upper,
     risingComparableFraction: current.rising, neighbors: current.count, trainingExamples: current.trainingCount,
-    comparables:current.comparables.map(row=>({return:row.return,weight:row.weight,outcomeAt:timestamp(bars[row.end])})),
+    comparables:current.comparables.map(row=>({return:row.return,weight:row.weight,outcomeAt:timestamp(bars[row.end]),originAt:timestamp(bars[row.origin]),distance:row.distance})),
+    diagnostics,
     validation: { periods, modelMae, noChangeMae, historicalMeanMae, passed },
   };
 }

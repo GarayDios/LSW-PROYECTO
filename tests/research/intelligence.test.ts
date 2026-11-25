@@ -11,6 +11,7 @@ import type { CompanyResearch, ObservedOptionContract, ResearchVariable } from '
 import { missingFundamentals } from '../../src/api/research/sec.ts';
 import { missingMacro } from '../../src/api/research/fred.ts';
 import { missingNews, missingOptions } from '../../src/api/research/alpaca.ts';
+import {diagnoseForecast} from '../../src/cores/02-inteligencia-artificial/diagnostics.ts';
 
 function history(length: number): Candle[] {
   const bars: Candle[] = [];
@@ -153,6 +154,8 @@ test('unvalidated predictions, wrong company/cutoff/horizon, missing closes and 
   const input = { research, forecast, preferences, settings: defaultAnalysisSettings };
   const unvalidated = recommendForPreferences({ ...input, forecast: { ...forecast, validation: { ...forecast.validation, passed: false } } });
   assert.equal(unvalidated.action, 'wait'); assert.equal(unvalidated.best, null);
+  const extrapolating={...forecast,diagnostics:diagnoseForecast({periods:[],passed:true,weights:[1],features:[]})};
+  assert.equal(recommendForPreferences({...input,forecast:extrapolating}).action,'wait','Global approval cannot bypass missing recent evidence');
   for (const changed of [{ ...forecast, symbol: 'OTHER' }, { ...forecast, asOf: '2026-11-16T16:00:00.000Z' },
     { ...forecast, horizonSessions: 5 }, { ...forecast, expectedReturn: -.2 }]) {
     assert.equal(recommendForPreferences({ ...input, forecast: changed }).action, 'wait');

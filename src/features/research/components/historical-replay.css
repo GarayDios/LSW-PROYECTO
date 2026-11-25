@@ -26,3 +26,39 @@
 .replay-scenarios{margin-top:18px;padding:16px 0}
 .replay-scenarios summary{cursor:pointer;color:#f4bd63}
 @media(max-width:600px){.replay-data-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.replay-data-grid>div{padding:11px}.replay-data-grid strong{font-size:14px}.replay-entry-summary{align-items:flex-start;flex-direction:column}.historical-replay .replay-controls button{flex:1 1 45%;min-height:40px}.replay-point-heading{align-items:flex-start;flex-direction:column}}
+
+/* Market workspace */
+.historical-replay{padding:clamp(16px,2.5vw,30px);border-color:#2a3543}
+.historical-replay h2{font-size:clamp(1.25rem,2vw,1.65rem);letter-spacing:-.03em;margin:10px 0}
+.replay-chart{overflow:hidden;border:1px solid #293544;border-radius:14px;background:linear-gradient(135deg,#121c29,#0b121c 65%);box-shadow:0 16px 40px #00000018}
+.replay-chart-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:24px 24px 20px}
+.replay-kicker{font-size:.75rem;letter-spacing:.12em;color:#a1afc0}
+.replay-price-heading{display:flex;align-items:center;gap:14px;margin:9px 0}
+.replay-price-heading strong{color:#edf3fc;font-size:2rem;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.replay-price-heading>span{font-size:.875rem;padding:5px 9px;border:1px solid #4a596944;border-radius:5px}
+.replay-chart-heading>div>span:last-child{font-size:.875rem;color:#95a5b9}
+.replay-chart .positive{color:#42c9a1}.replay-chart .negative{color:#f07883}
+.replay-view-switch{display:flex;padding:4px;background:#080f18;border:1px solid #293544;border-radius:8px}
+.replay-view-switch button,.replay-study-switch button{padding:7px 13px;border:1px solid transparent;border-radius:5px;background:transparent;color:#a1afc0;font-size:.875rem;cursor:pointer}
+.replay-view-switch button[aria-pressed=true]{background:#283545;color:#fff;box-shadow:0 2px 5px #0004}
+.replay-chart-toolbar{padding:12px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-block:1px solid #293544;background:#0b131d88}
+.replay-chart-legend,.replay-study-switch{display:flex;gap:15px;align-items:center;flex-wrap:wrap}
+.replay-chart-legend span{display:flex;align-items:center;gap:7px;color:#a1afc0;font-size:.8125rem}
+.replay-chart-legend i{width:14px;height:2px;display:inline-block}
+.replay-study-switch{gap:5px}.replay-study-switch button{border-color:#293544}
+.replay-study-switch button[aria-pressed=true]{color:#ffb47a;border-color:#ff934f55;background:#ff934f12}
+.replay-chart-viewport{overflow-x:auto;overscroll-behavior-x:contain;padding:14px 0 0}
+.replay-chart-viewport svg{display:block;width:100%;min-width:680px;height:auto;font-family:inherit}
+.replay-chart-point{grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin:0;border-block:1px solid #293544;background:#101a26}
+.replay-chart-point>div{border:0;border-right:1px solid #293544;border-radius:0;padding:16px;background:none;gap:7px}
+.replay-chart-point>div:last-child{border-right:0}.replay-chart-point span{font-size:.8125rem}.replay-chart-point strong{font-size:.9375rem;font-variant-numeric:tabular-nums}
+.replay-chart-details{padding:16px 20px;font-size:.875rem}.replay-chart-details summary{cursor:pointer;color:#afbdd0}
+.replay-chart>p{padding:0 20px 14px;font-size:.8125rem;margin:0}
+.replay-cursor-control{padding:16px;background:#121c27;border:1px solid #293544;border-radius:8px;font-size:.875rem}
+.replay-entry-summary{border-color:#ff934f44;background:linear-gradient(100deg,#ff934f0c,#121c27);border-radius:10px;margin:18px 0}
+.replay-entry-summary span{font-size:.875rem}.historical-replay .replay-controls{gap:12px;padding:14px 0}
+@media(max-width:800px){.replay-chart-point{grid-template-columns:repeat(3,minmax(0,1fr))}.replay-chart-point>div{border-bottom:1px solid #293544}.replay-chart-heading{padding:18px}.replay-chart-toolbar{padding:12px 16px}.replay-chart-heading{align-items:flex-start;flex-wrap:wrap}.replay-price-heading strong{font-size:1.75rem}}
+@media(prefers-reduced-motion:reduce){.replay-chart *{scroll-behavior:auto}}
+
+.replay-pnl-extremes{display:flex;gap:16px 28px;flex-wrap:wrap;align-items:center;padding:16px 24px;border-top:1px solid #293544;color:#94a7bd;font-size:.875rem}.replay-pnl-extremes strong{margin-left:7px;font-variant-numeric:tabular-nums}.replay-pnl-extremes>span:last-child{font-size:.8125rem}
+.replay-chart{scroll-margin-top:85px}.replay-chart svg text{font-size:14px}.replay-chart-viewport svg{min-width:900px}.replay-point-details{padding:12px 0;color:#a6b6c9;font-size:.875rem}.replay-point-details summary{cursor:pointer}

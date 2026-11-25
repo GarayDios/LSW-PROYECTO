@@ -12,7 +12,7 @@ export function HistoricalPointInspector({state,entryDate,mark,capital,positionE
     ['Soporte confirmado',money(structure?.support?.price)],['Resistencia confirmada',money(structure?.resistance?.price)],['HV anualizada al punto',percent(market.historicalVolatility.value)],['Retorno de 20 sesiones',percent(market.momentum20.value)],['Retorno de 60 sesiones',percent(market.momentum60.value)],['Caída máxima conocida',percent(market.maxDrawdown.value)]];
   return <section className="replay-point-inspector" aria-label="Datos del punto histórico" data-replay-date={new Date(bar.time).toISOString().slice(0,10)}>
     <div className="replay-point-heading"><h3>Datos del punto · {new Date(bar.time).toISOString().slice(0,10)}</h3><span>Entrada fijada: {entryDate}</span></div>
-    <div className="replay-data-grid">{rows.map(([label,value])=><div key={label} data-replay-metric={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    <details className="replay-point-details"><summary>Consultar indicadores y contexto de este cierre</summary><div className="replay-data-grid">{rows.map(([label,value])=><div key={label} data-replay-metric={label}><span>{label}</span><strong>{value}</strong></div>)}</div></details>
     <p>Señal conocida en este cierre: <strong>{state.analysis?.latest?.action==='buy'?'Entrada':state.analysis?.latest?.action==='sell'?'Salida':'Esperar'}</strong>. {state.analysis?.latest?.reason??'Faltan cierres para completar la regla seleccionada.'}</p>
     {!!state.events.length&&<ul>{state.events.map((event,i)=><li key={i}>{event.reason}</li>)}</ul>}
     <div className="historical-point-pnl" aria-label="Ganancia o pérdida en el punto" data-pnl={mark?.pnl}>

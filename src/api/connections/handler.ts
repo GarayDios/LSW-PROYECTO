@@ -23,6 +23,12 @@ export function createConnectionsHandler(deps: Dependencies) {
     if (probe && probe !== 'supabase' && probe !== 'mongodb') return privateJson({ error: { code: 'invalid_probe', message: 'Selecciona una base de datos válida.' } }, 400);
     if (probe && !owner) return privateJson({ error: { code: 'auth_required', message: 'Inicia sesión para comprobar tu conexión a la base de datos.' } }, 401);
     const records: ConnectionRecord[] = [];
+    const aiOwner=env.INTELLIGENCE_OWNER_USER_ID?.trim()||env.BROKER_OWNER_USER_ID?.trim();
+    records.push({id:'openrouter',title:'OpenRouter · asistente de análisis',category:'data',
+      status:!env.OPENROUTER_API_KEY?.trim()||!aiOwner?'missing_config':owner?.userId===aiOwner?'configured':'auth_required',
+      message:'Chat con contexto del terminal y recomendaciones según tu perfil. La disponibilidad del modelo se comprueba al preguntar.',
+      capabilities:['Preguntas de seguimiento','Explicación de riesgos','Comparación de estrategias','Recomendaciones con evidencia'],
+      setup:['OPENROUTER_API_KEY en .env.local','OPENROUTER_MODEL=openrouter/free','INTELLIGENCE_OWNER_USER_ID o propietario del bróker','Reiniciar el servidor']});
     for (const provider of ['supabase', 'mongodb'] as const) {
       const configured = provider === 'supabase' ? Boolean(env.SUPABASE_URL || env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY) : Boolean(env.MONGO_BRIDGE_URL || env.MONGO_BRIDGE_TOKEN);
       const record: ConnectionRecord = { id: provider, title: provider === 'supabase' ? 'PostgreSQL / Supabase' : 'MongoDB', category: 'database',
