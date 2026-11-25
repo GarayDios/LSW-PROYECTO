@@ -11,7 +11,7 @@ import { equityTerms, modelDividendYield, valuationExpiry } from '../../features
 import { blackScholes } from '../nucleo-cuantitativo/bsm.ts';
 import { withFinviz, finvizInstitutional } from '../04-analisis-fundamental/finviz-data.ts';
 
-export type ScannerCoreResult = { core: ScannerCoreId; score: number | null; weight: number; reason: string; direction?: number };
+export type ScannerCoreResult = { core: ScannerCoreId; score: number | null; weight: number; reason: string; direction?: number;dataMode?:'observed'|'estimated';automaticEstimation?:boolean };
 export type ScannerProjection = { spot: number; target: number; baseline: number; lower: number; upper: number; days: number; newsImpact: number; pnl: number | null; baselinePnl: number | null; pnlMethod: 'payoff' | 'diagonal' };
 export type ScannerEvaluation = { score: number | null; results: ScannerCoreResult[]; available: number; missing: number; active: number; availableWeight: number; reason: string; sentiment: ReturnType<typeof newsSentiment>; projection: ScannerProjection | null; monteCarloPop: number | null };
 const clamp = (n: number, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, n));
@@ -40,32 +40,40 @@ export function evaluateScanner(snapshot: CompanyResearch, strategy: StrategyId,
       if (flow && knownBy(flow, snapshot.asOf) && flow.kind === 'observed' && Math.abs(flow.value!) <= 1
         && Date.parse(snapshot.asOf) - Date.parse(flow.observedAt!) <= 7 * 86400000
       ) return result(50 + flow.value! * 50, `Flujo neto normalizado de −1 a 1. Fuente: ${flow.source}.`, flow.value!);
+      const institutional=snapshot.institutional;
+      if(institutional&&knownBy(institutional.direction,snapshot.asOf)&&institutional.comparable>0&&Math.abs(institutional.direction.value!)<=1&&Date.parse(snapshot.asOf)-Date.parse(institutional.direction.observedAt!)<=200*86400000){
+        const direction=institutional.direction.value!;
+        return result(50+direction*50,`Participación SEC 13F: ${institutional.comparable}/${institutional.configured} gestores de la muestra. Media de variaciones simétricas de acciones, ajustadas por splits; no es flujo intradía. ${institutional.managers.filter(m=>m.direction!==undefined).map(m=>`${m.name}: ${m.previous!.period} → ${m.current!.period}, variación ${m.change===undefined?'sin base porcentual':(m.change*100).toFixed(2)+'%'}`).join('; ')}.`,direction);
+      }
       const transaction=finvizInstitutional(snapshot);
       if(transaction){
         const direction=Math.tanh(transaction.value!/.1);
         return result(50+direction*50,`Proxy Finviz: Inst Trans ${(transaction.value!*100).toFixed(2)}%, variación de participación institucional. Captura manual del usuario; no es flujo intradía ni PoP. Normalización heurística tanh(variación/10%).`,direction);
       }
-      return missing(`Falta flujo neto observado o una captura reciente de Finviz «Inst Trans». «Inst Own» por sí solo no mide cambios. ${snapshot.finviz?.status.message??'En Finviz gratuito puedes copiar Inst Trans y cargarlo en el panel Finviz.'}`);
+      return missing(`Sin flujo observado, comparación SEC 13F evaluable o captura reciente de Finviz «Inst Trans». ${institutional?.status.message??''} ${institutional?.managers.map(m=>`${m.name}: ${m.message}`).join(' ')??''} «Inst Own» por sí solo no mide cambios.`);
     }
     if (core === 'fundamental') {
       const f = snapshot.fundamentals;
-      const fv=snapshot.finviz?.metrics, fvMargin=fv?.profitMargin;
-      const margin=fvMargin&&knownBy(fvMargin,snapshot.asOf)?fvMargin:f.netMargin;
-      const roe=fv?.roe, liquidity=fv?.currentRatio, debt=fv?.debtEquity;
+      const fv=snapshot.finviz?.metrics, automatic=snapshot.companyDetails?.metrics;
+      const current=(values:(typeof f.netMargin|undefined)[])=>values.find(v=>v&&knownBy(v,snapshot.asOf));
+      const margin=current([automatic?.netProfitMarginTTM,automatic?.netProfitMarginAnnual,fv?.profitMargin,f.netMargin])??f.netMargin;
+      const roe=current([automatic?.roeTTM,automatic?.roeRfy,fv?.roe]), liquidity=current([automatic?.currentRatioQuarterly,automatic?.currentRatioAnnual,fv?.currentRatio]), debt=fv?.debtEquity;
       const components = [knownBy(margin, snapshot.asOf) ? clamp((margin.value! + .2) / .4, 0, 1) : null,
         knownBy(f.liabilitiesToAssets, snapshot.asOf) ? clamp(1 - f.liabilitiesToAssets.value!, 0, 1) : debt&&knownBy(debt,snapshot.asOf)&&debt.value!>=0?1/(1+debt.value!):null,
         roe&&knownBy(roe,snapshot.asOf)?clamp((roe.value!+.2)/.6,0,1):null,
         liquidity&&knownBy(liquidity,snapshot.asOf)&&liquidity.value!>=0?clamp(liquidity.value!/2,0,1):null].filter((n): n is number => n !== null);
-      return components.length ? result(100 * components.reduce((sum, n) => sum + n, 0) / components.length, `Cobertura ${components.length}/4: margen [−20%,20%], solvencia, ROE [−20%,40%] y razón corriente [0,2], cuando existen. No se equiparan TTM y ejercicio fiscal. Fuentes: ${margin.source}; ${f.liabilitiesToAssets.source}${snapshot.finviz?'; Finviz manual declarado':''}.`)
-        : missing(`Faltan métricas fundamentales publicadas. ${f.status.message}`);
+      const sources=[knownBy(margin,snapshot.asOf)?margin.source:null,knownBy(f.liabilitiesToAssets,snapshot.asOf)?f.liabilitiesToAssets.source:debt&&knownBy(debt,snapshot.asOf)&&debt.value!>=0?debt.source:null,roe?.source,liquidity&&liquidity.value!>=0?liquidity.source:null].filter(Boolean);
+      return components.length ? result(100 * components.reduce((sum, n) => sum + n, 0) / components.length, `Cobertura ${components.length}/4: margen [−20%,20%], solvencia, ROE [−20%,40%] y razón corriente [0,2], cuando existen. No se equiparan TTM y ejercicio fiscal. Fuentes: ${sources.join('; ')}.`)
+        : missing(`Faltan métricas fundamentales publicadas. ${f.status.message} ${snapshot.companyDetails?.status.message??''}`);
     }
     if (core === 'monteCarlo') {
-      const scenario = strategyMonteCarloScenario(snapshot, strategy, days, policy);
-      if (!scenario.scenario) return missing(`${scenario.error} Monte Carlo necesita spot reciente, piernas compatibles y sus strikes/vencimientos, bid/ask e IV conocidos, multiplicador/entregable, tasa y dividendo. Si faltan cotizaciones, el modo estimado es una elección explícita; no rellena datos observados.`);
+      const scenario = strategyMonteCarloScenario(snapshot, strategy, days, {...policy,scanner:settings});
+      if (!scenario.scenario) return missing(scenario.error);
       try {
-        const simulation = simulateMonteCarlo({ ...scenario.scenario.basis, paths: 2000, steps: 16, seed: 20261124, mode: 'terminal', hedgeFeePerShare: 0, hedgeSpreadBps: 0, stockBorrowRate: 0 });
+        const {paths,seed}=settings.monteCarlo;
+        const simulation = simulateMonteCarlo({ ...scenario.scenario.basis, paths, steps: 16, seed, mode: 'terminal', hedgeFeePerShare: 0, hedgeSpreadBps: 0, stockBorrowRate: 0 });
         monteCarloPop = simulation.pnl.probabilityOfProfit;
-        return result(monteCarloPop * 100, `PoP simulada neutral al riesgo: 2,000 trayectorias, semilla 20261124, comisiones de entrada incluidas. ${strategy === 'pmcc' ? 'Al vencer la call corta, la LEAPS conserva su valor temporal con IV constante. ' : strategy === 'gamma' ? 'Straddle sin cobertura dinámica. ' : ''}No es probabilidad real calibrada ni se ajusta con titulares.`);
+        return {...result(monteCarloPop * 100, `PoP simulada neutral al riesgo: ${paths.toLocaleString('en-US')} trayectorias, semilla ${seed}, comisiones de entrada incluidas. ${scenario.scenario.dataMode==='estimated'?`${scenario.scenario.automaticEstimation?'Estimación automática':'Entradas estimadas'}: HV y primas teóricas pueden sustituir datos faltantes sobre contratos existentes. `:'Entradas del proveedor conocidas al corte. '}${strategy === 'pmcc' ? 'Al vencer la call corta, la LEAPS conserva su valor temporal con IV constante. ' : strategy === 'gamma' ? 'Straddle sin cobertura dinámica. ' : ''}No es probabilidad real calibrada ni se ajusta con titulares.`),dataMode:scenario.scenario.dataMode,automaticEstimation:scenario.scenario.automaticEstimation};
       } catch (error) { return missing(`No se pudo simular: ${error instanceof RangeError ? error.message : 'entradas numéricas no compatibles con el modelo'}.`); }
     }
     if (market.stale) return missing('Histórico diario desactualizado respecto al corte.');
@@ -117,6 +125,6 @@ export function evaluateScanner(snapshot: CompanyResearch, strategy: StrategyId,
       newsImpact: target - baseline, pnl: pnlAt(target), baselinePnl: pnlAt(baseline), pnlMethod: strategy === 'pmcc' ? 'diagonal' : 'payoff' };
   }
   const reason = score === null ? 'No evaluable: ningún core activo dispone de datos suficientes.'
-    : `Confluencia ${score}/100 · ${available.length}/${selected.length} cores evaluables. Media ponderada de los cores disponibles; no es probabilidad de éxito. ` + results.map(r => `${r.core}: ${r.score === null ? 'sin datos' : r.score + '/100'} (peso ${r.weight})`).join('; ');
+    : `Confluencia ${score}/100 · ${available.length}/${selected.length} cores evaluables. Media ponderada de los cores disponibles; no es probabilidad de éxito. ` + results.map(r => `${r.core}: ${r.score === null ? 'sin datos' : r.score + '/100'}${r.dataMode==='estimated'?r.automaticEstimation?' · estimación automática':' · estimado':''} (peso ${r.weight})`).join('; ');
   return { score, results, available: available.length, missing: selected.length - available.length, active: selected.length, availableWeight, reason, sentiment, projection, monteCarloPop };
 }

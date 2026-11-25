@@ -9,6 +9,11 @@ export class ResearchProviderError extends Error {
 
 /** Fixed provider URLs only; never include request URLs, keys or response bodies in errors. */
 export async function researchJson(url: URL, headers: Record<string, string>, fetcher: ResearchFetch): Promise<unknown> {
+  const body=await researchText(url,headers,fetcher);
+  try{return JSON.parse(body) as unknown;}catch{throw new ResearchProviderError(null,'La respuesta del proveedor no es JSON válido.');}
+}
+
+export async function researchText(url: URL, headers: Record<string, string>, fetcher: ResearchFetch): Promise<string> {
   let response: Response;
   try {
     response = await fetcher(url, { headers: { Accept: 'application/json', ...headers }, redirect: 'manual', signal: AbortSignal.timeout(15_000) });
@@ -23,8 +28,8 @@ export async function researchJson(url: URL, headers: Record<string, string>, fe
   try {
     const body = await response.text();
     if (body.length > 30_000_000) throw new Error('oversize');
-    return JSON.parse(body) as unknown;
-  } catch { throw new ResearchProviderError(null, 'La respuesta del proveedor no es JSON válido o excede el tamaño permitido.'); }
+    return body;
+  } catch { throw new ResearchProviderError(null, 'No se pudo leer la respuesta del proveedor o excede el tamaño permitido.'); }
 }
 
 export function providerFailure(source: string, error: unknown): ProviderStatus {

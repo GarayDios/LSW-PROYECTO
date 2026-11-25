@@ -3,6 +3,8 @@ import { readBrokerConfig, BrokerConfigError } from '../brokers/config.ts';
 import { fetchAlpacaHistory, MarketDataError, newYorkDate, symbolSchema } from '../market/alpaca-history.ts';
 import { compareStockRules, periodStart, type ComparisonResult } from '../../cores/05-indicadores-y-senales/comparison.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
+import {readWebull} from '../brokers/webull/gateway.ts';
+import type {WebullHistory} from '../brokers/webull/data.ts';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const time = Date.parse(value + 'T12:00:00Z');
@@ -11,6 +13,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
 const inputSchema = z.object({
   symbols: z.array(symbolSchema).min(1).max(6), years: z.array(z.union([z.literal(1), z.literal(3), z.literal(5)])).min(1).max(3),
   end: date, feeBps: z.number().finite().min(0).max(1000), slippageBps: z.number().finite().min(0).max(1000),
+  provider:z.enum(['alpaca','webull']).optional(),
 }).strict();
 
 export function createComparisonHandler(dependencies: {
@@ -22,21 +25,22 @@ export function createComparisonHandler(dependencies: {
       sameOrigin(request);
       const owner = await dependencies.owner();
       if (!owner) throw new ApiError('auth_required', 'Inicia sesión para comparar históricos.', 401);
-      const config = readBrokerConfig(dependencies.environment());
-      if (!config) throw new ApiError('broker_not_configured', 'Configura Alpaca para comparar datos reales.', 503);
-      if (owner.userId !== config.ownerUserId) throw new ApiError('broker_owner_required', 'Esta fuente pertenece a otro usuario.', 403);
       const parsed = inputSchema.safeParse(await smallJson(request));
       if (!parsed.success) throw new ApiError('invalid_comparison', 'Revisa hasta seis empresas, los periodos y los costes.');
+      const environment=dependencies.environment(),provider=parsed.data.provider??'alpaca',config=provider==='alpaca'?readBrokerConfig(environment):null;
+      if (provider==='alpaca'&&!config) throw new ApiError('broker_not_configured', 'Configura Alpaca para comparar sus datos.', 503);
+      if (owner.userId !== (provider==='webull'?environment.BROKER_OWNER_USER_ID:config?.ownerUserId)) throw new ApiError('broker_owner_required', 'Esta fuente pertenece a otro usuario.', 403);
       const input = parsed.data, now = dependencies.now?.() ?? Date.now(), today = newYorkDate(now);
       if (input.end > today) throw new ApiError('future_comparison', 'El corte no puede ser una fecha futura.');
       const symbols = [...new Set(input.symbols)], years = [...new Set(input.years)].sort((a, b) => a - b);
       const result: ComparisonResult = { rows: [], excluded: [], cutoff: input.end, generatedAt: new Date(now).toISOString(),
-        source: `alpaca:${config.dataFeed}`, feeBps: input.feeBps, slippageBps: input.slippageBps,
+        source: provider==='webull'?'webull:sandbox':`alpaca:${config!.dataFeed}`, feeBps: input.feeBps, slippageBps: input.slippageBps,
         warnings: ['Comparación de reglas de acciones; no es un backtest de opciones F5 ni una probabilidad futura.',
           'Los periodos de uno, tres y cinco años se solapan. No son muestras independientes ni se selecciona un ganador automáticamente.',
           'Validación inicial 70/30 y estabilidad por ventanas de 63 sesiones, con costes por ejecución. El benchmark se valora al cierre y no simula su venta final.',
           'Las series ajustadas por splits no incluyen dividendos: los retornos representan precio, no retorno total.'],
       };
+      if(provider==='webull')result.warnings.push('Resultados del entorno de pruebas Webull, con velas diarias forward-adjusted según el contrato del proveedor; no acreditan rentabilidad con precios de producción.');
       const bySymbol = new Map<string, Pick<ComparisonResult, 'rows' | 'excluded' | 'warnings'>>();
       let cursor = 0;
       await Promise.all(Array.from({ length: Math.min(2, symbols.length) }, async () => {
@@ -45,7 +49,8 @@ export function createComparisonHandler(dependencies: {
           const output: Pick<ComparisonResult, 'rows' | 'excluded' | 'warnings'> = { rows: [], excluded: [], warnings: [] };
           bySymbol.set(symbol, output);
           try {
-            const history = await (dependencies.history ?? fetchAlpacaHistory)(config, { symbol, start: periodStart(input.end, Math.max(...years)), end: input.end, interval: '1d' }, dependencies.fetcher ?? fetch, now);
+            const query={ symbol, start: periodStart(input.end, Math.max(...years)), end: input.end, interval: '1d' as const };
+            const history = provider==='webull'?await readWebull<WebullHistory>(environment,owner.userId,'market-history',query,dependencies.fetcher??fetch):await (dependencies.history ?? fetchAlpacaHistory)(config!,query,dependencies.fetcher ?? fetch, now);
             output.warnings.push(...history.warnings);
             const bars = history.bars.filter(bar => newYorkDate(bar.time) <= input.end && newYorkDate(bar.time) < today);
             for (const period of years) {

@@ -10,7 +10,7 @@ import { cashDividendPv } from '../../src/features/research/contract-terms.ts';
 import { orderContext } from '../../src/features/orders/order-context.ts';
 import { defaultAnalysisSettings } from '../../src/features/research/analysis-settings.ts';
 import { missingVariable } from '../../src/cores/compartido/research-model.ts';
-import { researchFixture,fixtureTime,fixtureVariable as v } from './research-fixture.ts';
+import { researchFixture,fixtureTime,fixtureVariable as v,fixtureContract } from './research-fixture.ts';
 
 test('estimated mode completes existing contracts transparently, preserves sources and neutralizes circular BSM comparisons',()=>{
   const s=researchFixture();s.options.contracts=s.options.contracts.filter(c=>c.type==='put'&&c.strike.value===95);
@@ -31,6 +31,21 @@ test('estimated reconstruction bounds expensive trees and reports a partial cand
   assert.ok(result.options.contracts.filter(c=>c.bid.kind==='assumed').length<=10);assert.equal(result.options.complete,false);
   assert.match(result.warnings.join(' '),/Reconstrucción limitada/);
   assert.ok(s.options.contracts.every(c=>c.bid.kind==='missing'));
+});
+
+test('PMCC bounded reconstruction reserves deep ITM long calls instead of exhausting all candidates near ATM',()=>{
+  const s=researchFixture();
+  const absent=missingVariable('provider','stale quote');
+  s.options.contracts=Array.from({length:500},(_,i)=>({...fixtureContract(i%2?'call':'put',98+i%5,2,2.2,i<250?'2026-12-18':'2027-11-19'),symbol:`XYZ-atm-${i}`,bid:absent,ask:absent,premium:absent,impliedVolatility:absent,delta:v(1)}));
+  s.options.contracts.push({...fixtureContract('call',80,23,24,'2027-11-19'),symbol:'XYZ-deep-long',bid:absent,ask:absent,premium:absent,impliedVolatility:absent});
+  const original=structuredClone(s);
+  const analysis=analyzeStrategy(s,'pmcc',30,{modelMode:'estimated',estimatedCandidateLimit:10,pmccMinLongDelta:.81,longDays:365});
+  assert.equal(analysis.status,'available');
+  assert.equal(analysis.legs[0].contract.symbol,'XYZ-deep-long');
+  assert.equal(analysis.legs[0].contract.delta.kind,'assumed');
+  assert.ok(analysis.legs[0].contract.delta.value!>=.81);
+  assert.deepEqual(s,original);
+  assert.equal(analyzeStrategy(s,'pmcc',30,{modelMode:'observed'}).status,'unavailable');
 });
 
 test('PMCC reserves assignment capital and reports financing and long-leg IV sensitivity',()=>{

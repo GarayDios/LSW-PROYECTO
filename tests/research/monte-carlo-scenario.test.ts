@@ -4,6 +4,8 @@ import { strategyMonteCarloScenario } from '../../src/cores/evaluacion/monte-car
 import { analyzeStrategy } from '../../src/cores/evaluacion/strategy-analysis.ts';
 import { missingVariable } from '../../src/cores/compartido/research-model.ts';
 import { fixtureVariable as v, researchFixture } from './research-fixture.ts';
+import {defaultScannerSettings} from '../../src/cores/evaluacion/scanner-settings.ts';
+import {evaluateScanner} from '../../src/cores/evaluacion/scanner.ts';
 
 test('Monte Carlo strategy adapter preserves bid/ask cashflows, ratios, fees and original snapshots', () => {
   for (const strategy of ['wheel', 'backspread', 'gamma', 'pmcc'] as const) {
@@ -55,4 +57,51 @@ test('estimated entries and common volatility are disclosed in the simulation pr
   assert.match(result.scenario.label, /estimadas/);
   assert.ok(result.scenario.warnings.some(w => w.includes('Una sola volatilidad')));
   assert.ok(result.scenario.sources.some(s => s.includes('Escenario estimado')));
+});
+
+function staleChain(){
+  const s=researchFixture();s.options.feed='indicative';
+  for(const c of s.options.contracts)for(const key of ['bid','ask','premium','impliedVolatility'] as const)c[key]={...missingVariable('Alpaca indicative','La cotización de la última sesión supera una hora.'),lastReceived:{value:c[key].value!,observedAt:'2026-11-16T20:59:59.315Z',receivedAt:s.asOf}};
+  return s;
+}
+test('automatic Monte Carlo reconstructs stale indicative inputs for all strategies without changing observed research or enabling a trade',()=>{
+  for(const strategy of ['wheel','pmcc','backspread','gamma'] as const){
+    const s=staleChain(),original=structuredClone(s),scenario=strategyMonteCarloScenario(s,strategy,30);
+    assert.ok(scenario.scenario,scenario.error);assert.equal(scenario.scenario.dataMode,'estimated');assert.equal(scenario.scenario.automaticEstimation,true);assert.match(scenario.scenario.label,/estimación automática/);assert.ok(scenario.scenario.sources.some(source=>source.includes('Escenario estimado')));assert.equal(scenario.scenario.basis.volatility,s.market.historicalVolatility.value);assert.ok(scenario.scenario.warnings.some(w=>w.includes('No son cotizaciones ejecutables')));
+    assert.deepEqual(s,original);assert.equal(analyzeStrategy(s,strategy,30).status,'unavailable','A simulated reconstruction cannot make the observed strategy tradable');
+  }
+});
+test('automatic Monte Carlo prefers valid provider inputs and strict mode never substitutes stale inputs',()=>{
+  const observed=strategyMonteCarloScenario(researchFixture(),'wheel',30).scenario!;assert.equal(observed.dataMode,'observed');assert.notEqual(observed.automaticEstimation,true);
+  const s=staleChain(),scanner={...defaultScannerSettings,monteCarlo:{...defaultScannerSettings.monteCarlo,dataMode:'observed' as const}};
+  assert.equal(strategyMonteCarloScenario(s,'wheel',30,{scanner}).scenario,null);assert.equal(strategyMonteCarloScenario(s,'wheel',30,{scanner,modelMode:'estimated'}).scenario,null);
+  const explicit=strategyMonteCarloScenario(s,'wheel',30,{scanner:{...scanner,monteCarlo:{...scanner.monteCarlo,dataMode:'estimated'}}}).scenario!;assert.equal(explicit.dataMode,'estimated');assert.notEqual(explicit.automaticEstimation,true);
+});
+
+test('automatic reconstruction repairs invalid IV and can use verified IV when historical volatility is missing',()=>{
+  const invalid=staleChain();for(const c of invalid.options.contracts)c.impliedVolatility=v(-.1);
+  const repaired=strategyMonteCarloScenario(invalid,'wheel',30);assert.ok(repaired.scenario,repaired.error);assert.equal(repaired.scenario.basis.volatility,invalid.market.historicalVolatility.value);
+  const noHistory=staleChain();noHistory.market.historicalVolatility=missingVariable('Market','No history');for(const c of noHistory.options.contracts)c.impliedVolatility=v(.3);
+  const quotedIv=strategyMonteCarloScenario(noHistory,'gamma',30);assert.ok(quotedIv.scenario,quotedIv.error);assert.equal(quotedIv.scenario.basis.volatility,.3);assert.equal(quotedIv.scenario.automaticEstimation,true);
+});
+
+test('automatic reconstruction preserves capital constraints and reports the actual blocker',()=>{
+  const s=staleChain(),result=strategyMonteCarloScenario(s,'wheel',30,{capital:100});
+  assert.equal(result.scenario,null);assert.match(result.error!,/Capital insuficiente/);assert.doesNotMatch(result.error!,/IV ausente|última sesión supera/);
+});
+test('automatic reconstruction never supplies missing rate, dividend, history, stale spot or nonexistent contracts',()=>{
+  for(const missing of ['rate','dividend','history','spot','contracts','deliverable','future-metadata'] as const){
+    const s=staleChain();if(missing==='rate')s.macro.riskFreeRate=missingVariable('FRED','No rate');if(missing==='dividend')s.fundamentals.dividendYield=missingVariable('SEC','No yield');if(missing==='history')s.market.historicalVolatility=missingVariable('Market','Insufficient history');if(missing==='spot')s.market.stale=true;if(missing==='contracts')s.options.contracts=[];
+    if(missing==='deliverable')for(const c of s.options.contracts)c.deliverableShares=missingVariable('Provider','Unknown deliverable');
+    if(missing==='future-metadata')for(const c of s.options.contracts)c.strike.availableAt='2027-01-01T00:00:00Z';
+    assert.equal(strategyMonteCarloScenario(s,'wheel',30).scenario,null,missing);
+  }
+});
+test('4122 unusable quotes still yield a bounded, reproducible automatic core while strict mode remains unavailable',()=>{
+  const s=staleChain(),base=s.options.contracts;s.options.contracts=Array.from({length:4122},(_,i)=>({...base[i%base.length],symbol:base[i%base.length].symbol+'-QA'+i}));
+  const settings={...defaultScannerSettings,monteCarlo:{seed:31,paths:500},cores:Object.fromEntries(Object.entries(defaultScannerSettings.cores).map(([id,c])=>[id,{...c,enabled:id==='monteCarlo'}])) as typeof defaultScannerSettings.cores};
+  const first=evaluateScanner(s,'pmcc',30,settings,{estimatedCandidateLimit:20}),second=evaluateScanner(s,'pmcc',30,settings,{estimatedCandidateLimit:20});
+  assert.ok(first.monteCarloPop!==null);assert.equal(first.monteCarloPop,second.monteCarloPop);assert.equal(first.results[0].automaticEstimation,true);assert.equal(first.available,1);assert.match(first.results[0].reason,/Estimación automática/);
+  const scenario=strategyMonteCarloScenario(s,'pmcc',30,{estimatedCandidateLimit:20});assert.match(scenario.scenario!.warnings.join(' '),/20 candidatos de 4122/);
+  const strict=evaluateScanner(s,'pmcc',30,{...settings,monteCarlo:{...settings.monteCarlo,dataMode:'observed'}});assert.equal(strict.monteCarloPop,null);assert.equal(strict.available,0);
 });

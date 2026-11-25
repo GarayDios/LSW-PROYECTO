@@ -1,8 +1,8 @@
 import { BrokerError } from '../../api/brokers/alpaca/client.ts';
-import type { F5Account, F5Contract, F5Operation, F5Position, F5RiskSettings, F5RiskState } from '../../features/f5/types.ts';
+import type { F5Account, F5Contract, F5Operation, F5Position, F5RiskSettings, F5RiskState, F5Feed } from '../../features/f5/types.ts';
 import { f5Pending, f5Today } from './operation-state.ts';
 
-export async function measureF5Risk(input: { account: F5Account; positions: F5Position[]; operations: F5Operation[]; settings: F5RiskSettings; previous: F5RiskState | null; time: number; feed: 'indicative' | 'opra'; contract(symbol: string): Promise<F5Contract> }): Promise<F5RiskState> {
+export async function measureF5Risk(input: { account: F5Account; positions: F5Position[]; operations: F5Operation[]; settings: F5RiskSettings; previous: F5RiskState | null; time: number; feed: F5Feed; contract(symbol: string): Promise<F5Contract> }): Promise<F5RiskState> {
   const { account, settings, previous, time } = input, date = f5Today(time);
   let uncertain = !Number.isFinite(account.equity), grossExposureUsd = 0, premiumExposureUsd = 0, delta = 0;
   for (const position of input.positions) {
@@ -13,7 +13,7 @@ export async function measureF5Risk(input: { account: F5Account; positions: F5Po
       premiumExposureUsd += Math.abs(position.marketValue);
       try {
         const contract = await input.contract(position.symbol), stamp = contract.quoteTime ? Date.parse(contract.quoteTime) : NaN;
-        if (contract.delta === null || !Number.isFinite(contract.delta) || !Number.isFinite(stamp) || stamp > time + 5000 || time - stamp > (input.feed === 'indicative' ? 1200000 : 60000)) uncertain = true;
+        if (contract.delta === null || !Number.isFinite(contract.delta) || !Number.isFinite(stamp) || stamp > time + 5000 || time - stamp > (input.feed === 'opra' ? 60000 : 1200000)) uncertain = true;
         else delta += position.quantity * contract.size * contract.delta;
       } catch { uncertain = true; }
     } else uncertain = true;

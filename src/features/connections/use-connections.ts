@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionRecord } from '../../api/connections/handler';
+import type {WebullPortfolio} from '../../cores/compartido/webull-model';
+import type {WebullAccountSummary} from '../../api/brokers/webull/client';
 
 type Account = { status: string; equity: string; buyingPower: string; cash?: string; accountNumber?: string };
 export type ConnectionsSnapshot = {
   identity: { displayName: string; authenticated: boolean } | null; connections: ConnectionRecord[];
   alpaca: { connected: boolean; account: Account | null; message: string };
-  webull: { configured?: boolean; connected: boolean; enabled: boolean; message: string; account?: { account_id?: string } };
+  webull: { configured?: boolean; connected: boolean; enabled: boolean; message: string; account?: WebullAccountSummary|null;portfolio?:WebullPortfolio|null };
 };
 async function get<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', signal });
@@ -25,7 +27,7 @@ export function useConnections() {
       if (!Array.isArray(summary.connections)) throw Error('La respuesta de conexiones no es válida. Vuelve a consultar.');
       const results = await Promise.allSettled([
         summary.identity ? get<{ account: Account }>('/api/broker/account', controller.signal) : Promise.reject(Error('Inicia sesión para verificar tu cuenta Paper.')),
-        summary.identity ? get<ConnectionsSnapshot['webull']>('/api/webull', controller.signal) : Promise.reject(Error('Inicia sesión para verificar Webull.')),
+        summary.identity ? (async()=>{const status=await get<ConnectionsSnapshot['webull']>('/api/webull',controller.signal);if(!status.connected)return status;try{const detail=await get<ConnectionsSnapshot['webull']>('/api/webull?action=account',controller.signal);return {...status,...detail,message:'Cuenta Webull Sandbox verificada. Cada sección muestra su disponibilidad.'};}catch{return {...status,portfolio:null,message:'Cuenta verificada; no se pudieron actualizar sus saldos y posiciones.'};}})() : Promise.reject(Error('Inicia sesión para verificar Webull.')),
       ]);
       if (controller.signal.aborted) return;
       setData({ ...summary,

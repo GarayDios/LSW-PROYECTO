@@ -10,21 +10,21 @@ export type ChartNewsState = {
 type State = { key: object | null; snapshot: NewsTimelinePage | null; loading: boolean; loadingMore: boolean; error: string };
 
 /** Loading an older page cannot replace a different company's selected range. */
-export function useChartNews({ enabled, symbol, start, end }: { enabled: boolean; symbol: string; start: string; end: string }): ChartNewsState {
+export function useChartNews({ enabled, symbol, start, end,provider='alpaca' }: { enabled: boolean; symbol: string; start: string; end: string;provider?:'alpaca'|'webull' }): ChartNewsState {
   const [revision, setRevision] = useState(0);
   const [state, setState] = useState<State>({ key: null, snapshot: null, loading: false, loadingMore: false, error: '' });
   const paging = useRef<AbortController | null>(null);
-  const key = useMemo(() => ({ enabled, symbol, start, end, revision }), [enabled, symbol, start, end, revision]);
+  const key = useMemo(() => ({ enabled, symbol, start, end, revision,provider }), [enabled, symbol, start, end, revision,provider]);
   const reload = useCallback(() => setRevision(value => value + 1), []);
   const read = useCallback(async (controller: AbortController, token?: string, cutoff?: string): Promise<NewsTimelinePage> => {
-    const query = new URLSearchParams({ symbol, start, end, ...(token ? { pageToken: token } : {}), ...(cutoff ? { cutoff } : {}) });
+    const query = new URLSearchParams({ symbol, start, end, provider,...(token ? { pageToken: token } : {}), ...(cutoff ? { cutoff } : {}) });
     const response = await fetch(`/api/research/news?${query}`, { signal: controller.signal, credentials: 'same-origin', cache: 'no-store' });
     const body = await response.json() as NewsTimelinePage & { error?: { message?: string } };
     if (!response.ok) throw new Error(body.error?.message ?? 'No se pudieron consultar las noticias.');
     if (body.symbol !== symbol || body.start !== start || body.end !== end || !Number.isFinite(Date.parse(body.asOf))
       || !Array.isArray(body.news?.articles) || cutoff && body.asOf !== cutoff) throw new Error('La fuente devolvió noticias de otro rango o una respuesta incompleta.');
     return body;
-  }, [symbol, start, end]);
+  }, [symbol, start, end,provider]);
   useEffect(() => {
     paging.current?.abort(); paging.current = null;
     if (!enabled) return;

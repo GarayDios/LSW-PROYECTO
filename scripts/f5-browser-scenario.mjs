@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 
 /** Installed before app scripts; all F5 requests are local fixtures, never broker calls. */
-export function installF5QA() {
-  const key = 'tepic-f5-browser-qa';
+export function installF5QA(provider='alpaca') {
+  const key = 'tepic-f5-browser-qa-'+provider,endpoint=provider==='webull'?'/api/webull-f5':'/api/f5';
+  const feed=provider==='webull'?'webull-sandbox':'indicative';
   const read = () => JSON.parse(sessionStorage.getItem(key));
   const save = value => sessionStorage.setItem(key, JSON.stringify(value));
   if (!read()) save({ operations: [], positions: [], previews: 0, submits: 0, cancels: 0, ambiguousNext: false });
@@ -18,7 +19,7 @@ export function installF5QA() {
     operation.brokerOrder.filled_avg_price = String(operation.limitPrice);
     return operation;
   };
-  window.__f5QA = {
+  const qa=window[provider==='webull'?'__webullF5QA':'__f5QA'] = {
     inspect: read,
     statusFailure: null,
     complete: () => {
@@ -34,18 +35,19 @@ export function installF5QA() {
   };
   window.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, location.href);
-    if (url.origin !== location.origin || url.pathname !== '/api/f5') return original(input, init);
+    if (url.origin !== location.origin || url.pathname !== endpoint) return original(input, init);
     const data = read(), method = (init?.method ?? 'GET').toUpperCase();
     const response = (body, status = 200) => Response.json(body, { status, headers: { 'X-QA-Fixture': 'f5' } });
     if (method === 'GET' && url.searchParams.get('resource') === 'contracts') {
       const underlying = url.searchParams.get('underlying'), expiry = url.searchParams.get('expiry');
-      if(expiry==='2099-01-01')return response({contracts:[],complete:true,feed:'indicative'});
-      return response({ contracts: [contract(underlying, expiry, 'put', 140), contract(underlying, expiry, 'call', 140), contract(underlying, expiry, 'call', 150)], complete: true, feed: 'indicative' });
+      if(expiry==='2099-01-01')return response({contracts:[],complete:true,feed});
+      return response({ contracts: [contract(underlying, expiry, 'put', 140), contract(underlying, expiry, 'call', 140), contract(underlying, expiry, 'call', 150)], complete: true, feed });
     }
-    if(method==='GET'&&window.__f5QA.statusFailure)return response({error:window.__f5QA.statusFailure},window.__f5QA.statusFailure.code==='auth_required'?401:503);
+    if(method==='GET'&&url.searchParams.get('resource')==='report')return response({generatedAt:now(),currency:'USD',source:provider==='webull'?'QA Webull Sandbox':'QA Alpaca Paper',totals:{cashFlowUsd:0,realizedPnlUsd:0,unrealizedPnlUsd:0,grossPnlUsd:0,feesUsd:null,netPnlUsd:null,observedCashFlowUsd:0,observedFeesUsd:0,coverage:{fills:'partial',fees:'unknown',settlements:'partial',positions:'complete'},warnings:['QA fixture; no external orders.']},cycles:[],strategies:[],daily:[],unattributed:[],warnings:[]});
+    if(method==='GET'&&qa.statusFailure)return response({error:qa.statusFailure},qa.statusFailure.code==='auth_required'?401:503);
     if (method === 'GET') return response({
-      configured: true, enabled: true, marketOpen: true, mode: 'paper', feed: 'indicative',
-      account: { status: 'ACTIVE', cash: 80000, buyingPower: 80000, optionsBuyingPower: 80000, equity: 98765.43, optionsLevel: 3, blocked: false },
+      configured: true, enabled: true, marketOpen: true, mode: provider==='webull'?'sandbox':'paper', feed,
+      account: { status: 'ACTIVE', cash: 80000, buyingPower: 80000, optionsBuyingPower: 80000, equity: 98765.43, optionsLevel: provider==='webull'?null:3,...(provider==='webull'?{optionsPermissionSource:'preview'}:{}),blocked: false },
       operations: data.operations, positions: data.positions,
       activities: [{ id: 'qa-expiry', type: 'OPEXP', symbol: 'QA-EXAMPLE', date: '2026-11-13', quantity: '1', description: 'Actividad de prueba del navegador.' }],
     });

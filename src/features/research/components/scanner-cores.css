@@ -12,3 +12,4 @@
 .scanner-result-stats b{font:600 15px ui-monospace,monospace;color:#e3e9ef}
 .scanner-result details{margin-top:10px}.scanner-result summary{cursor:pointer;color:#c5d0db}
 .scanner-result li{margin:7px 0;color:#9eacba}
+.scanner-mc-controls{margin:12px 0;font-size:11px;color:#b8c7d3}.scanner-mc-controls summary{cursor:pointer;margin-bottom:12px}

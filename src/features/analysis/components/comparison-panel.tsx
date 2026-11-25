@@ -15,14 +15,14 @@ function exportResult(result: ComparisonResult) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function ComparisonPanel({ symbol, end, enabled }: { symbol: string; end: string; enabled: boolean }) {
+export default function ComparisonPanel({ symbol, end, enabled,provider='alpaca' }: { symbol: string; end: string; enabled: boolean;provider?:'alpaca'|'webull' }) {
   const [symbols, setSymbols] = useState(`${symbol}, AAPL, MSFT`);
   const [years, setYears] = useState<number[]>([1, 3, 5]);
   const [fee, setFee] = useState('10'), [slippage, setSlippage] = useState('5');
   const [result, setResult] = useState<ComparisonResult | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const active = useRef<AbortController | null>(null);
-  useEffect(() => { active.current?.abort(); setResult(null); setBusy(false); setError(''); return () => active.current?.abort(); }, [end, enabled]);
+  useEffect(() => { active.current?.abort(); setResult(null); setBusy(false); setError(''); return () => active.current?.abort(); }, [end, enabled,provider]);
   async function compare(event: React.FormEvent) {
     event.preventDefault();
     const universe = [...new Set(symbols.toUpperCase().split(/[\s,;]+/).filter(Boolean))];
@@ -31,7 +31,7 @@ export default function ComparisonPanel({ symbol, end, enabled }: { symbol: stri
     setBusy(true); setError(''); setResult(null);
     try {
       const response = await fetch('/api/research/comparison', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols: universe, years, end, feeBps: Number(fee), slippageBps: Number(slippage) }), signal: controller.signal });
+        body: JSON.stringify({ symbols: universe, years, end, provider,feeBps: Number(fee), slippageBps: Number(slippage) }), signal: controller.signal });
       const value = await response.json() as ComparisonResult & { error?: { message?: string } };
       if (!response.ok) throw Error(value.error?.message ?? 'No se pudo completar la comparación.');
       if (!controller.signal.aborted) setResult(value);
@@ -48,7 +48,8 @@ export default function ComparisonPanel({ symbol, end, enabled }: { symbol: stri
       <label>Deslizamiento (pb)<input aria-label="Deslizamiento comparación" type="number" min="0" max="1000" step="0.1" value={slippage} onChange={event => setSlippage(event.target.value)} required/></label>
       <button className="secondary-button" disabled={!enabled || busy}>{busy ? 'Comparando históricos…' : 'Comparar empresas y periodos'}</button>
     </form>
-    {!enabled && <p>Selecciona la fuente Alpaca para consultar históricos reales.</p>}
+    {!enabled && <p>Selecciona Alpaca o Webull para consultar históricos del proveedor.</p>}
+    {enabled&&provider==='webull'&&<p>Comparación con Webull Sandbox: resultados de pruebas; se conserva la procedencia y cobertura del histórico.</p>}
     {busy && <p role="status">Consultando cada empresa una sola vez para todos los periodos…</p>}
     {error && <p className="negative" role="alert">{error}</p>}
     {result && <><p>{result.source} · Corte: {result.cutoff} · Comisión {result.feeBps} pb + deslizamiento {result.slippageBps} pb por ejecución.</p>

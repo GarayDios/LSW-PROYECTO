@@ -13,6 +13,8 @@ export type F5Store = {
   reserve(ownerId: string, id: string, lease: string, now: number): boolean;
   acquire(ownerId: string, now: number): string | null;
   release(ownerId: string, lease: string): void;
+  owns(ownerId:string,lease:string,now:number):boolean;
+  bind(ownerId:string,binding:string):void;
   settings(ownerId: string): F5RiskSettings;
   setSettings(ownerId: string, value: F5RiskSettings): void;
   risk(ownerId: string): F5RiskState | null;
@@ -46,6 +48,7 @@ export function openF5Store(filename: string): F5Store {
     create table if not exists f5_plans (id text primary key, owner_id text not null, payload text not null);
     create table if not exists f5_events (id text primary key, owner_id text not null, time text not null, dedup_key text not null, payload text not null, unique(owner_id,dedup_key));
     create table if not exists f5_actions (owner_id text not null, action_key text not null, operation_id text not null, primary key(owner_id,action_key));
+    create table if not exists f5_accounts (owner_id text primary key,binding text not null);
   `);
   const read = (row: Record<string, unknown> | undefined): F5Operation | null => row ? {
     ...JSON.parse(String(row.payload)), state: String(row.state),
@@ -84,6 +87,8 @@ export function openF5Store(filename: string): F5Store {
       return Number(result.changes) === 1 ? lease : null;
     },
     release(ownerId, lease) { database.prepare('delete from f5_account_leases where owner_id=? and lease=?').run(ownerId, lease); },
+    owns(ownerId,lease,now){return !!database.prepare('select 1 from f5_account_leases where owner_id=? and lease=? and expires_at>?').get(ownerId,lease,now);},
+    bind(ownerId,binding){database.prepare('insert into f5_accounts(owner_id,binding) values(?,?) on conflict(owner_id) do nothing').run(ownerId,binding);if(database.prepare('select binding from f5_accounts where owner_id=?').get(ownerId)?.binding!==binding)throw new Error('El registro F5 pertenece a otra cuenta de bróker. Configura un archivo separado para esta cuenta.');},
     settings(ownerId) { return control<F5RiskSettings>(ownerId, 'settings') ?? { ...defaultF5Risk }; },
     setSettings(ownerId, value) { setControl(ownerId, 'settings', value); },
     risk(ownerId) { return control<F5RiskState>(ownerId, 'risk'); },

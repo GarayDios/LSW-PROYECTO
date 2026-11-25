@@ -79,12 +79,14 @@ export function f5Residual(parent: F5Operation, operations: F5Operation[], posit
   const quantity = nonzero.reduce((count, [, qty]) => gcd(count, Math.abs(qty)), 0);
   const legs: F5Leg[] = nonzero.map(([symbol, count]) => ({ symbol, side: count > 0 ? 'sell' : 'buy', ratio: Math.abs(count) / quantity, intent: count > 0 ? 'sell_to_close' : 'buy_to_close' }));
   const currentShort = nonzero.find(([, count]) => count < 0)?.[0];
+  const awaitingShort=parent.strategy==='pmcc'&&nonzero.length===1&&nonzero[0][1]>0&&children.some(child=>child.action==='roll'&&child.request.action==='roll'&&child.request.step==='close-short'&&child.state==='filled');
   const phase: F5Lifecycle['phase'] = uncertain ? 'uncertain' : pending ? 'pending' : nonzero.length === 0 ? assigned ? 'assigned' : expired ? 'expired' : 'closed'
     : executed(parent) < parent.quantity || children.some(child => child.action === 'close' && executed(child) > 0) || nonzero.length !== parent.legs.length ? 'partial' : 'open';
   return { vector, legs, quantity, lifecycle: { phase, remainingQuantity: quantity, hedgeShares,
     canClose: !uncertain && !pending && quantity > 0 && hedgeShares === 0,
     canHedge: !uncertain && !pending && parent.strategy === 'gamma' && (quantity > 0 || hedgeShares > 0),
-    canRoll: !uncertain && !pending && parent.strategy === 'pmcc' && nonzero.length === 2 && Boolean(currentShort),
+    canRoll: !uncertain && !pending && parent.strategy === 'pmcc' && (nonzero.length === 2 && Boolean(currentShort)||awaitingShort),
+    ...(parent.strategy==='pmcc'?{rollPhase:awaitingShort?'open-short' as const:'close-short' as const}:{}),
     ...(currentShort ? { shortContract: currentShort } : {}),
     ...(uncertain ? { reason: 'Las posiciones no coinciden con las ejecuciones y eventos verificables del ciclo. Revisa movimientos manuales o espera la actividad del bróker.' } : pending ? { reason: 'Hay una orden pendiente o parcial; concilia o cancela antes de operar el residuo.' } : {}),
   } };

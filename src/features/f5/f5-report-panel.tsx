@@ -29,36 +29,39 @@ function EventsTable({ events }: { events: F5ReportEvent[] }) {
   return events.length ? <div className="f5-table-scroll f5-report-event-table"><table><thead><tr><th>Evento / fecha</th><th>Activo</th><th>Cantidad</th><th>Precio</th><th>Flujo de efectivo</th><th>Comisión</th><th>Procedencia</th></tr></thead><tbody>{events.map(event => <tr key={event.id}><td><strong>{eventLabels[event.type]}</strong><small>{time(event.date)}</small></td><td>{event.symbol ?? 'Sin símbolo'}</td><td>{event.quantity ?? '—'}</td><td>{cash(event.price)}</td><td className={moneyClass(event.cashFlowUsd)}>{cash(event.cashFlowUsd)}</td><td>{cash(event.feeUsd)}</td><td className="f5-report-source"><span>{event.source}</span>{!event.known && <small>Importe o atribución sin confirmar</small>}{event.reason && <small>{event.reason}</small>}{event.operationId && <small>Operación: {event.operationId}</small>}{event.activityId && <small>Actividad: {event.activityId}</small>}</td></tr>)}</tbody></table></div> : <p className="f5-empty">No hay movimientos confirmados para mostrar en este grupo.</p>;
 }
 
-export default function F5ReportPanel({ available }: { available: boolean }) {
+export default function F5ReportPanel({ available,broker='alpaca' }: { available: boolean;broker?:'alpaca'|'webull' }) {
+  const endpoint=broker==='webull'?'/api/webull-f5':'/api/f5',label=broker==='webull'?'Webull Sandbox':'Alpaca Paper';
   const [report, setReport] = useState<F5Report | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [strategyFilter, setStrategyFilter] = useState('all');
   const sequence = useRef(0);
   const mounted = useRef(true);
-  const availableRef = useRef(available); availableRef.current = available;
+  useEffect(()=>{availableRef.current=available;},[available]);
+  const availableRef=useRef(available);
   const load = useCallback(async () => {
     if (!availableRef.current) return;
     const requestId = ++sequence.current;
     setLoading(true); setError('');
     try {
-      const response = await fetch('/api/f5?resource=report', { credentials: 'same-origin', cache: 'no-store' });
-      const value = await response.json().catch(() => null) as { report?: F5Report; error?: string | { message?: string } } | null;
-      if (!response.ok || !value?.report) throw new Error(typeof value?.error === 'string' ? value.error : value?.error?.message || 'No se pudo generar el reporte con los movimientos de Alpaca.');
-      if (mounted.current && requestId === sequence.current) setReport(value.report);
+      const response = await fetch(endpoint+'?resource=report', { credentials: 'same-origin', cache: 'no-store' });
+      const value = await response.json().catch(() => null) as (Partial<F5Report> & { report?: F5Report; error?: string | { message?: string } }) | null;
+      const received=value?.report??(value?.totals&&Array.isArray(value.cycles)?value as F5Report:null);
+      if (!response.ok || !received) throw new Error(typeof value?.error === 'string' ? value.error : value?.error?.message || 'No se pudo generar el reporte con los movimientos del bróker.');
+      if (mounted.current && requestId === sequence.current) setReport(received);
     } catch (failure) { if (mounted.current && requestId === sequence.current) { setReport(null); setError(failure instanceof Error ? failure.message : 'No se pudo consultar el reporte.'); } }
     finally { if (mounted.current && requestId === sequence.current) setLoading(false); }
-  }, []);
+  }, [endpoint]);
   useEffect(() => {
     mounted.current = true;
-    if (available) void load(); else { setReport(null); sequence.current++; }
+    queueMicrotask(()=>{if(!mounted.current)return;if (available) void load(); else { setReport(null); sequence.current++; }});
     return () => { mounted.current = false; sequence.current++; };
   }, [available, load]);
   const cycles = report?.cycles.filter(cycle => strategyFilter === 'all' || cycle.strategy === strategyFilter) ?? [];
   const metrics = report?.totals;
   return <div className="f5-report-panel" aria-label="Reporte F5 de resultados y movimientos">
     <section className="panel f5-report-summary"><div className="f5-heading"><div><span className="f5-kicker"><BarChart3 size={14}/>RESULTADOS CON EVIDENCIA DEL BRÓKER</span><h2>Reporte de ciclos y estrategias F5</h2><p>Consolida ejecuciones, posiciones, liquidaciones y comisiones identificadas. Los importes que no se pueden determinar permanecen pendientes.</p></div><button className="secondary-button" disabled={!available || loading} onClick={() => void load()}><RefreshCw size={14} className={loading ? 'spin' : ''}/>{loading ? 'Consultando movimientos…' : 'Actualizar reporte F5'}</button></div>
-      {!available && <p className="f5-empty">Conecta Alpaca Paper para consultar el historial del servicio y los movimientos de la cuenta.</p>}
+      {!available && <p className="f5-empty">Conecta {label} para consultar el historial del servicio y los movimientos de la cuenta.</p>}
       {error && <p className="f5-error" role="alert">{error}</p>}
       {report && metrics && <><p className="f5-report-cutoff">Generado: {time(report.generatedAt)} · moneda: {report.currency} · {report.source}</p><div className="f5-report-summary-grid"><div><span>Flujo de efectivo del ciclo</span><strong className={moneyClass(metrics.cashFlowUsd)}>{cash(metrics.cashFlowUsd)}</strong><small>Entradas y salidas monetarias; no equivale por sí solo a ganancia.</small></div><div><span>Resultado realizado</span><strong className={moneyClass(metrics.realizedPnlUsd)}>{cash(metrics.realizedPnlUsd)}</strong><small>Sobre cantidades cerradas y atribuidas.</small></div><div><span>Resultado no realizado</span><strong className={moneyClass(metrics.unrealizedPnlUsd)}>{cash(metrics.unrealizedPnlUsd)}</strong><small>Posiciones abiertas valoradas por el bróker.</small></div><div><span>Resultado antes de comisiones</span><strong className={moneyClass(metrics.grossPnlUsd)}>{cash(metrics.grossPnlUsd)}</strong><small>Solo cuando flujos y valoración están conciliados.</small></div><div><span>Comisiones identificadas</span><strong>{cash(metrics.feesUsd)}</strong><small>La ausencia de comisiones publicadas no se interpreta como coste cero.</small></div><div><span>Resultado neto</span><strong className={moneyClass(metrics.netPnlUsd)}>{cash(metrics.netPnlUsd)}</strong><small>Después de los costes que se pueden verificar.</small></div></div><Coverage metrics={metrics}/>{(metrics.cashFlowUsd === null || metrics.feesUsd === null) && <p className="f5-report-observed">Subtotal identificado: flujos {cash(metrics.observedCashFlowUsd)} · comisiones {cash(metrics.observedFeesUsd)}. Estos subtotales no completan los movimientos que falten por atribuir.</p>}<div className="f5-report-export"><button className="secondary-button" disabled={loading} onClick={() => download(f5ReportCsv(report), `TEPIC-F5-resumen-${report.generatedAt.slice(0, 10)}.csv`)}><ArrowDownToLine size={14}/>Exportar resumen F5 CSV</button><button className="secondary-button" disabled={loading} onClick={() => download(eventsCsv(report), `TEPIC-F5-movimientos-${report.generatedAt.slice(0, 10)}.csv`)}><ArrowDownToLine size={14}/>Exportar movimientos F5 CSV</button></div>{(report.warnings.length > 0 || metrics.warnings.length > 0) && <details className="f5-report-warnings" open><summary>Alcance y datos pendientes del reporte</summary><ul>{[...new Set([...report.warnings, ...metrics.warnings])].map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}</>}
     </section>

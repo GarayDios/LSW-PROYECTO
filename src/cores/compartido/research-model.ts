@@ -1,6 +1,8 @@
 import type { Candle } from '../../features/market/chart-history.ts';
 import type { CoreId, OptionType } from './types.ts';
 import type { FinvizResearch } from '../04-analisis-fundamental/finviz-data.ts';
+import type { CompanyDetails } from '../04-analisis-fundamental/company-metrics.ts';
+import type { InstitutionalResearch } from '../02-flujo-institucional/sec-13f.ts';
 
 /** A numeric input always carries its origin and the date it became knowable. */
 export type ResearchVariable = {
@@ -66,7 +68,7 @@ export type ObservedOptionContract = {
 
 export type ResearchOptions = {
   contracts: ObservedOptionContract[];
-  feed: 'indicative' | 'opra' | null;
+  feed: 'indicative' | 'opra' | 'webull-sandbox' | null;
   complete: boolean;
   status: ProviderStatus;
   warnings: string[];
@@ -129,10 +131,12 @@ export type NewsTimelinePage = {
 
 export type CompanyResearch = {
   symbol: string;
-  dataMode?: 'demo';
+  dataMode?: 'demo'|'sandbox';
   finviz?: FinvizResearch;
+  companyDetails?: CompanyDetails;
   /** Optional normalized net flow, −1..1, from an identified institutional source. */
   institutionalFlow?: ResearchVariable;
+  institutional?:InstitutionalResearch;
   /** Decision cutoff. Inputs published after this instant are excluded. */
   asOf: string;
   generatedAt: string;

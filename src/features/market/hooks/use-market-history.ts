@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { generateHistory, historyIssue, type Candle } from '../chart-history';
 
-export type MarketSource = 'demo' | 'alpaca';
+export type MarketSource = 'demo' | 'alpaca'|'webull';
 export type MarketHistory = {
-  source: 'alpaca'; feed: 'iex' | 'sip'; symbol: string; interval: string; start: string; end: string;
-  bars: Candle[]; adjustment: 'split'; asOf: string;
+  source: 'alpaca'|'webull'; feed: 'iex' | 'sip'|'sandbox'; symbol: string; interval: string; start: string; end: string;
+  bars: Candle[]; adjustment: 'split'|'unverified'|'forward'|'unadjusted'; asOf: string;
   coverage: { firstBar: string | null; lastBar: string | null; requestedStart: string; requestedEnd: string };
   warnings: string[];
 };
@@ -25,27 +25,28 @@ function validCandle(value: unknown): value is Candle {
 export function useMarketHistory(options: { source: MarketSource; symbol: string; price: number; start: string; end: string; interval: string }) {
   const { source, symbol, price, start, end, interval } = options;
   const [revision, setRevision] = useState(0);
-  const key = `${symbol}:${start}:${end}:${interval}:${revision}`;
+  const key = `${source}:${symbol}:${start}:${end}:${interval}:${revision}`;
   const [remote, setRemote] = useState<RemoteState>({ key: '', bars: [], meta: null, company: null, loading: false, error: '' });
   const demo = useMemo(() => source === 'demo' ? generateHistory(symbol, price, start, end, interval) : [], [source, symbol, price, start, end, interval]);
   useEffect(() => {
-    if (source !== 'alpaca') return;
+    if (source === 'demo') return;
     const controller = new AbortController();
     const issue = historyIssue(start, end);
     if (issue) {
       queueMicrotask(() => { if (!controller.signal.aborted) setRemote({ key, bars: [], meta: null, company: null, loading: false, error: issue }); });
       return () => controller.abort();
     }
-    setRemote({ key, bars: [], meta: null, company: null, loading: true, error: '' });
-    const query = new URLSearchParams({ source: 'alpaca', symbol, start, end, interval });
+    queueMicrotask(()=>{if(!controller.signal.aborted)setRemote({ key, bars: [], meta: null, company: null, loading: true, error: '' });});
+    const query = new URLSearchParams(source==='webull'?{action:'market-history',symbol,start,end,interval}:{source:'alpaca',symbol,start,end,interval});
     void (async () => {
       try {
-        const response = await fetch(`/api/market/history?${query}`, { signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
+        const response = await fetch(`${source==='webull'?'/api/webull':'/api/market/history'}?${query}`, { signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
         const value = await response.json() as MarketHistory & { error?: { message?: string } };
         if (!response.ok) throw new Error(value.error?.message || 'No se pudo consultar el histórico real. Revisa la conexión de Alpaca en el servidor.');
-        if (value.source !== 'alpaca' || value.symbol !== symbol || value.interval !== interval || !['iex','sip'].includes(value.feed) || !Array.isArray(value.warnings) || !value.warnings.every(warning => typeof warning === 'string') || !Array.isArray(value.bars) || !value.bars.every(validCandle)) throw new Error('El proveedor devolvió un histórico no válido.');
+        if (value.source !== source || value.symbol !== symbol || value.interval !== interval || !(source==='webull'?['sandbox']:['iex','sip']).includes(value.feed) || !Array.isArray(value.warnings) || !value.warnings.every(warning => typeof warning === 'string') || !Array.isArray(value.bars) || !value.bars.every(validCandle)) throw new Error('El proveedor devolvió un histórico no válido.');
         if (controller.signal.aborted) return;
         setRemote({ key, bars: value.bars, meta: value, company: null, loading: false, error: '' });
+        if(source==='webull')return;
         try {
           const identityResponse = await fetch(`/api/market/company?symbol=${encodeURIComponent(symbol)}`, { signal: controller.signal, cache: 'no-store', credentials: 'same-origin' });
           if (!identityResponse.ok) return;
@@ -58,13 +59,13 @@ export function useMarketHistory(options: { source: MarketSource; symbol: string
     })();
     return () => controller.abort();
   }, [source, symbol, start, end, interval, key]);
-  const current = remote.key === key ? remote : { bars: [], meta: null, company: null, loading: source === 'alpaca', error: '' };
+  const current = remote.key === key ? remote : { bars: [], meta: null, company: null, loading: source !== 'demo', error: '' };
   return {
     bars: source === 'demo' ? demo : current.bars,
-    loading: source === 'alpaca' && current.loading,
+    loading: source !== 'demo' && current.loading,
     error: source === 'demo' ? historyIssue(start, end) : current.error,
-    meta: source === 'alpaca' ? current.meta : null,
-    company: source === 'alpaca' ? current.company : null,
+    meta: source !== 'demo' ? current.meta : null,
+    company: source !== 'demo' ? current.company : null,
     reload: () => setRevision(value => value + 1),
   };
 }

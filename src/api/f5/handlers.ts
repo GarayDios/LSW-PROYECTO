@@ -3,7 +3,7 @@ import { readBrokerConfig, BrokerConfigError } from '../brokers/config.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
 
 type Environment = Record<string, string | undefined>;
-type Dependencies = { environment(): Environment; owner(): Promise<{ userId: string } | null>; fetcher?: typeof fetch };
+type Dependencies = { environment(): Environment; owner(): Promise<{ userId: string } | null>; fetcher?: typeof fetch; provider?:'alpaca'|'webull' };
 const mutation = z.discriminatedUnion('action', [
   z.object({ action: z.literal('preview'), request: z.record(z.unknown()) }).strict(),
   z.object({ action: z.literal('submit'), previewId: z.string().uuid() }).strict(),
@@ -32,16 +32,17 @@ function failure(error: unknown): Response {
 /** The request identity, never browser input, chooses the account and ledger owner. */
 export function createF5Handlers(dependencies: Dependencies) {
   const fetcher = dependencies.fetcher ?? fetch;
+  const webull=dependencies.provider==='webull',label=webull?'Webull Sandbox':'Alpaca Paper',enableKey=webull?'WEBULL_MANUAL_ENABLED':'ALPACA_F5_ENABLED';
   async function authorize() {
     const owner = await dependencies.owner();
-    if (!owner) throw new ApiError('auth_required', 'Inicia sesión para consultar y operar opciones en Alpaca Paper.', 401);
-    const environment = dependencies.environment(), config = readBrokerConfig(environment);
-    if (!config) throw new ApiError('f5_broker_missing', 'Configura las claves de Alpaca Paper y BROKER_OWNER_USER_ID en el servidor.', 503);
+    if (!owner) throw new ApiError('auth_required', `Inicia sesión para consultar y operar opciones en ${label}.`, 401);
+    const environment = dependencies.environment(), config = webull?{ownerUserId:environment.BROKER_OWNER_USER_ID}:readBrokerConfig(environment);
+    if (!config) throw new ApiError('f5_broker_missing', `Configura las claves de ${label} y BROKER_OWNER_USER_ID en el servidor.`, 503);
     if (owner.userId !== config.ownerUserId) throw new ApiError('broker_owner_required', 'Esta cuenta Paper pertenece a otro usuario del terminal.', 403);
     return { owner, environment, runner: runnerConfig(environment) };
   }
   async function forward(context: Awaited<ReturnType<typeof authorize>>, path: string, body?: Record<string, unknown>) {
-    const url = new URL('/f5/' + path, context.runner.url);
+    const url = new URL((webull?'/webull/f5/':'/f5/') + path, context.runner.url);
     if (!body) url.searchParams.set('ownerId', context.owner.userId);
     let response: Response;
     try {
@@ -112,10 +113,13 @@ export function createF5Handlers(dependencies: Dependencies) {
         f5_order_fill_uncertain: 'La cantidad ejecutada que devolvió Alpaca no se pudo verificar. Concilia la orden antes de continuar.',
         f5_order_identity_uncertain: 'La orden recibida no coincide con la referencia y los parámetros revisados. Verifica Alpaca.',
         f5_order_legs_uncertain: 'Alpaca no confirmó todas las piernas de la orden combinada. Actualiza el estado para conciliarla.',
+        webull_atomic_roll_unavailable:'Webull no confirmó un roll atómico con intenciones de apertura y cierre. Gestiona la call corta desde la mesa de órdenes y revisa la nueva apertura por separado.',
+        broker_endpoint_unavailable:'Este endpoint no está disponible en el sandbox configurado. La sección mantiene sus datos pendientes.',
       };
-      throw new ApiError(code in messages ? code : 'f5_request_rejected', messages[code] ?? 'F5 rechazó la solicitud. Revisa los contratos, las cantidades, el límite de capital y el estado de las órdenes.', status);
+      const message=messages[code]??'F5 rechazó la solicitud. Revisa los contratos, las cantidades, el límite de capital y el estado de las órdenes.';
+      throw new ApiError(code in messages ? code : 'f5_request_rejected',webull?message.replaceAll('Alpaca Paper',label).replaceAll('Alpaca','Webull').replaceAll('ALPACA_F5_ENABLED',enableKey):message,status);
     }
-    if (path === 'status') return privateJson({ ...value, enabled: (value as { enabled?: boolean }).enabled === true && context.environment.ALPACA_F5_ENABLED === 'true' }, response.status);
+    if (path === 'status') return privateJson({ ...value, enabled: (value as { enabled?: boolean }).enabled === true && context.environment[enableKey] === 'true' }, response.status);
     return privateJson(value, response.status);
   }
   return {
@@ -137,7 +141,7 @@ export function createF5Handlers(dependencies: Dependencies) {
         const context = await authorize(), parsed = mutation.safeParse(await smallJson(request));
         if (!parsed.success) throw new ApiError('f5_invalid_action', 'Revisa los datos de la operación F5.');
         const action = parsed.data;
-        if (action.action === 'submit' && context.environment.ALPACA_F5_ENABLED !== 'true') throw new ApiError('f5_disabled', 'Activa ALPACA_F5_ENABLED=true en el terminal y el servicio para enviar opciones a Alpaca Paper.', 409);
+        if ((action.action==='submit'||webull&&action.action==='cancel') && context.environment[enableKey] !== 'true') throw new ApiError('f5_disabled', `Activa ${enableKey}=true en el terminal y el servicio para enviar a ${label}.`, 409);
         if (action.action === 'control') {
           if(['enable-plan','tick'].includes(String(action.request.action)))throw new ApiError('manual_orders_only','El terminal usa órdenes manuales. Prepara y confirma cada operación por separado.',409);
           if (['enable-plan', 'tick'].includes(String(action.request.action)) &&

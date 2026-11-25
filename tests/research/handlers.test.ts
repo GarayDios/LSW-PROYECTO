@@ -69,6 +69,27 @@ test('research boundary rejects anonymous and other-owner access before consulti
   }
   assert.equal(calls, 0);
 });
+
+test('authenticated research forwards Finnhub configuration only on the server and publishes actual normalized metrics',async()=>{
+  const key='private-finnhub-test-token';let calls=0;
+  const api=createResearchHandlers({environment:()=>({...environment,FINNHUB_API_KEY:key}),owner,history,now:()=>now,
+    research:(input,_fetcher,time)=>fetchCompanyResearch({...input,alpaca:undefined,fred:undefined,sec:undefined},async(url,init)=>{
+      calls++;assert.equal(new Headers(init?.headers).get('X-Finnhub-Token'),key);
+      const path=new URL(String(url)).pathname;
+      assert.equal(new URL(String(url)).hostname,'finnhub.io');
+      return Response.json(path.endsWith('/metric')?{symbol:'AAPL',metric:{netProfitMarginTTM:25}}:path.endsWith('/profile2')?{ticker:'AAPL',name:'Corporate fixture'}:[]);
+    },time),
+  });
+  const response=await api.company(get());assert.equal(response.status,200);
+  const raw=await response.text(),result=JSON.parse(raw);
+  assert.equal(calls,3);assert.equal(result.research.companyDetails.metrics.netProfitMarginTTM.value,.25);
+  assert.ok(result.research.quality.sources.some((s:{source:string;status:string})=>s.source.includes('Finnhub')&&s.status==='ready'));
+  assert.ok(!raw.includes(key));
+  const historical=await api.company(get('symbol=AAPL&start=2023-11-13&end=2026-08-01'));
+  const previous=await historical.json() as {research:{companyDetails:{status:{status:string}}}};
+  assert.equal(previous.research.companyDetails.status.status,'unavailable');
+  assert.equal(calls,3,'historical requests cannot query current ratios');
+});
 test('research snapshots cap knowledge to range end and now, preserving missing inputs and hiding credentials', async () => {
   const api = createResearchHandlers({ environment: () => environment, owner, history, research, now: () => now });
   const response = await api.company(get('symbol=AAPL&start=2023-11-13&end=2026-08-01&cutoff=2030-01-01T00%3A00%3A00Z'));

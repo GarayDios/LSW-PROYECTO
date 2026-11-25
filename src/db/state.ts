@@ -29,7 +29,7 @@ export const watchlistSchema = z.object({
   scores: z.record(z.object({ score: finite.min(0).max(100), reason: z.string().max(4000) }).strict()).optional(),
   strategy: strategy.optional(), config: configSchema.optional(),
   research: z.object({
-    source: z.literal('alpaca'), generatedAt: z.string().datetime({ offset: true }), cutoff: z.string().datetime({ offset: true }),
+    source: z.enum(['alpaca','webull']), generatedAt: z.string().datetime({ offset: true }), cutoff: z.string().datetime({ offset: true }),
     warnings: z.array(z.string().max(4000)).max(100),
     excluded: z.array(z.object({ symbol: z.string().max(16), reason: z.string().max(4000) }).strict()).max(100),
     snapshots: z.record(z.object({

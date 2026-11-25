@@ -17,7 +17,7 @@ export type AnalysisPolicy = {
   dividendYield?: ResearchVariable; riskFreeRate?: ResearchVariable; longDays?: number; tuning?: EvaluationTuningInput;
   modelMode?:'observed'|'estimated';financingRate?:number;pmccCapitalMode?:'assignment-reserve'|'debit-only';pmccMinLongDelta?:number;ivShock?:number;estimatedSpreadPercent?:number;estimatedSpreadFloor?:number;
   dividendModel?:'continuous'|'declared-cash';
-  estimatedCandidateLimit?:number;estimateDays?:number;
+  estimatedCandidateLimit?:number;estimateDays?:number;estimateStrategy?:StrategyId;
 };
 export type StrategyLeg = { contract: ObservedOptionContract; quantity: number; entry: number };
 export type StrategyAnalysis = {
@@ -42,16 +42,20 @@ const spread = (c: ObservedOptionContract) => (c.ask.value! - c.bid.value!) / Ma
 /** Structural selection, ordered by requested tenor and quoted transaction friction.
  * No fixed target IV, delta or strike percentage. All legs must be observed. */
 export function selectStrategyLegs(s: CompanyResearch, strategy: StrategyId, days: number, policy: AnalysisPolicy = {}): StrategyLeg[] {
-  s=estimatedSnapshot(s,{...policy,estimateDays:days});
+  s=estimatedSnapshot(s,{...policy,estimateDays:days,estimateStrategy:strategy});
   if (!Number.isFinite(days) || days <= 0 || !knownBy(s.market.spot, s.asOf)) return [];
   let tuning;try {tuning=evaluationTuning(policy.tuning);}catch{return [];}
   const spot = s.market.spot.value!;
-  const terms=(c:ObservedOptionContract)=>equityTerms(c,s.asOf)!;
+  const descriptors=new Map<ObservedOptionContract,{terms:NonNullable<ReturnType<typeof equityTerms>>;days:number;expiry:number;spread:number}>();
+  const descriptor=(c:ObservedOptionContract)=>{let value=descriptors.get(c);if(!value){const time=expiry(s,c);value={terms:equityTerms(c,s.asOf)!,days:(time-Date.parse(s.asOf))/DAY,expiry:time,spread:spread(c)};descriptors.set(c,value);}return value;};
+  const terms=(c:ObservedOptionContract)=>descriptor(c).terms;
+  const maturity=(c:ObservedOptionContract)=>descriptor(c).days;
+  const expiration=(c:ObservedOptionContract)=>descriptor(c).expiry;
   const strike=(c:ObservedOptionContract)=>terms(c).effectiveStrike;
   const compatible=(a:ObservedOptionContract,b:ObservedOptionContract)=>terms(a).multiplier===terms(b).multiplier && terms(a).shares===terms(b).shares
     && Math.abs(Date.parse(a.premium.observedAt!)-Date.parse(b.premium.observedAt!))<=tuning.legQuoteSkewMinutes*60000;
   const contracts = inspectContracts(s,policy).eligible;
-  const distance = (c: ObservedOptionContract, tenor = days) => tuning.tenorWeight*Math.abs(remaining(s, c) - tenor) / tenor + tuning.spreadWeight*spread(c);
+  const distance = (c: ObservedOptionContract, tenor = days) => tuning.tenorWeight*Math.abs(maturity(c) - tenor) / tenor + tuning.spreadWeight*descriptor(c).spread;
   const ordered = (items: ObservedOptionContract[], tenor = days) => [...items].sort((a,b) => distance(a,tenor) - distance(b,tenor) || Math.abs(strike(a) - spot) - Math.abs(strike(b) - spot) || a.symbol.localeCompare(b.symbol));
   const leg = (contract: ObservedOptionContract, quantity: number): StrategyLeg => ({ contract, quantity, entry: quantity > 0 ? contract.ask.value! : contract.bid.value! });
   if (strategy === 'wheel') {
@@ -65,11 +69,11 @@ export function selectStrategyLegs(s: CompanyResearch, strategy: StrategyId, day
       if(knownBy(c.delta,s.asOf))return c.delta.value!;
       const r=policy.riskFreeRate??s.macro.riskFreeRate,q=modelDividendYield(s,policy);
       if(!knownBy(r,s.asOf)||!knownBy(q,s.asOf))return -Infinity;
-      try{return blackScholes({spot,strike:strike(c),days:remaining(s,c),volatility:c.impliedVolatility.value!,rate:r.value!,dividendYield:q.value!,type:'call'}).delta;}catch{return -Infinity;}
+      try{return blackScholes({spot,strike:strike(c),days:maturity(c),volatility:c.impliedVolatility.value!,rate:r.value!,dividendYield:q.value!,type:'call'}).delta;}catch{return -Infinity;}
     };
-    const longs = ordered(calls.filter(c => strike(c) < spot && remaining(s,c) > days && (!(policy.pmccMinLongDelta??0)||delta(c)>=(policy.pmccMinLongDelta??0))), policy.longDays ?? Math.max(365,days*4));
+    const longs = ordered(calls.filter(c => strike(c) < spot && maturity(c) > days && (!(policy.pmccMinLongDelta??0)||delta(c)>=(policy.pmccMinLongDelta??0))), policy.longDays ?? Math.max(365,days*4));
     for (const long of longs) {
-      const short = ordered(calls.filter(c => compatible(c,long) && strike(c) > strike(long) && expiry(s,c) < expiry(s,long) && c.bid.value! > 0
+      const short = ordered(calls.filter(c => compatible(c,long) && strike(c) > strike(long) && expiration(c) < expiration(long) && c.bid.value! > 0
         && long.ask.value! > c.bid.value! && (policy.capital === undefined || (long.ask.value! - c.bid.value!)*terms(c).multiplier + 2*(policy.feePerContract ?? 0)
           + (policy.pmccCapitalMode==='debit-only'?0:c.strike.value!*terms(c).multiplier) <= policy.capital)))[0];
       if (short) return [leg(long,1),leg(short,-1)];
@@ -78,13 +82,13 @@ export function selectStrategyLegs(s: CompanyResearch, strategy: StrategyId, day
   }
   if (strategy === 'gamma') {
     for (const call of ordered(calls)) {
-      const put = contracts.find(c => c.type === 'put' && compatible(c,call) && expiry(s,c) === expiry(s,call) && strike(c) === strike(call));
+      const put = contracts.find(c => c.type === 'put' && compatible(c,call) && expiration(c) === expiration(call) && strike(c) === strike(call));
       if (put && (policy.capital === undefined || (call.ask.value! + put.ask.value!)*terms(call).multiplier + 2*(policy.feePerContract ?? 0) <= policy.capital)) return [leg(call,1),leg(put,1)];
     }
     return [];
   }
   for (const short of ordered(calls.filter(c => c.bid.value! > 0))) {
-    const long = ordered(calls.filter(c => compatible(c,short) && expiry(s,c) === expiry(s,short) && strike(c) > strike(short)
+    const long = ordered(calls.filter(c => compatible(c,short) && expiration(c) === expiration(short) && strike(c) > strike(short)
       && (policy.capital === undefined || Math.max(0,(c.strike.value!-short.strike.value!+2*c.ask.value!-short.bid.value!)*terms(c).multiplier)+3*(policy.feePerContract ?? 0)<=policy.capital)))[0];
     if (long) return [leg(short,-1),leg(long,2)];
   }
@@ -94,7 +98,7 @@ export function selectStrategyLegs(s: CompanyResearch, strategy: StrategyId, day
 /** Aggregate signed cashflows using verified premium multiplier and deliverables. Prices use ask for buys,
  * bid for sales and fees per contract. These are conservative estimates, not fills. */
 export function analyzeStrategy(s: CompanyResearch, strategy: StrategyId, days: number, policy: AnalysisPolicy = {}): StrategyAnalysis {
-  s=estimatedSnapshot(s,{...policy,estimateDays:days});
+  s=estimatedSnapshot(s,{...policy,estimateDays:days,estimateStrategy:strategy});
   const a: StrategyAnalysis = { strategy, status:'unavailable', missing:[], warnings:[], legs:[], capitalRequired:null, entryDebit:null,
     maxLoss:null,maxGain:null,breakevens:[],spreadCost:null,netDelta:null,netGamma:null,netTheta:null,theoreticalDebit:null,
     probability:null,probabilityMethod:'No disponible',scenarios:[],optionLiquidity:null,model:'BSM europeo; CRR americano cuando el estilo está verificado',horizonDays:null,contractMultiplier:null,deliverableShares:null,

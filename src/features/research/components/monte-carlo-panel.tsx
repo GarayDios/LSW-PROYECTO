@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OptionInputs, StrategyId } from '../../../cores/compartido/types';
 import type { CompanyResearch } from '../../../cores/compartido/research-model';
 import { blackScholes } from '../../../cores/nucleo-cuantitativo/bsm';
@@ -14,6 +14,7 @@ import './monte-carlo-panel.css';
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const percent = (n: number) => `${(n * 100).toFixed(1)}%`;
 const number = (s: string) => s.trim() === '' ? NaN : Number(s);
+const EMPTY_WARNINGS:string[]=[];
 type Run = { result: MonteCarloResult; request: MonteCarloRequest; scenario: MonteCarloScenario; signature: string };
 
 function SimulationCharts({ result }: { result: MonteCarloResult }) {
@@ -51,22 +52,23 @@ function SimulationCharts({ result }: { result: MonteCarloResult }) {
   </div>;
 }
 
-export default function MonteCarloPanel({ input, premium, side = 'buy', context, research, strategy, days, settings, singleWarnings = [] }: {
+export default function MonteCarloPanel({ input, premium, side = 'buy', context, research, strategy, days, settings, singleWarnings = EMPTY_WARNINGS }: {
   input: OptionInputs | null; premium?: number; side?: 'buy' | 'sell'; context: string;
   research: CompanyResearch | null; strategy: StrategyId; days: number; settings: AnalysisSettings; singleWarnings?: string[];
 }) {
-  const [target, setTarget] = useState<'single' | 'strategy'>(research ? 'strategy' : 'single');
-  const [paths, setPaths] = useState('10000'), [steps, setSteps] = useState('32'), [seed, setSeed] = useState('42');
+  const [target, setTarget] = useState<'single' | 'strategy'>('strategy');
+  const [paths, setPaths] = useState(String(settings.scanner?.monteCarlo.paths??10000)), [steps, setSteps] = useState(settings.scanner?'16':'32'), [seed, setSeed] = useState(String(settings.scanner?.monteCarlo.seed??42));
   const [hedge, setHedge] = useState(false), [hedgeFee, setHedgeFee] = useState('0.005');
   const [spread, setSpread] = useState('10'), [borrow, setBorrow] = useState('5');
   const [running, setRunning] = useState(false), [error, setError] = useState(''), [run, setRun] = useState<Run | null>(null);
+  const [automatic,setAutomatic]=useState(true);
   const worker = useRef<Worker | null>(null);
-  useEffect(() => () => { worker.current?.terminate(); }, []);
+  const scheduled=useRef<ReturnType<typeof setTimeout>|null>(null),cancelledSignature=useRef<string|null>(null);
   const candidate = useMemo((): { scenario: MonteCarloScenario | null; error?: string } => {
     try {
       if (target === 'strategy') return research
         ? strategyMonteCarloScenario(research, strategy, Math.max(1, days), analysisPolicy(settings, research))
-        : { scenario: null, error: 'Carga datos de Alpaca para simular los contratos de la estrategia seleccionada.' };
+        : { scenario: null, error: 'Carga datos de un proveedor para simular los contratos de la estrategia seleccionada.' };
       if (!input) return { scenario: null, error: 'Faltan entradas completas del contrato o escenario mostrado arriba.' };
       if (research && settings.dividendModel === 'declared-cash') return { scenario: null, error: 'El modelo actual usa pagos discretos. Monte Carlo requiere elegir explícitamente dividendos continuos.' };
       const entry = premium ?? blackScholes(input).price;
@@ -86,8 +88,8 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
   const signature = JSON.stringify({ request, scenario, context, target });
   const stale = !!run && run.signature !== signature;
 
-  function simulate() {
-    if (!request || !scenario) return;
+  const start=useCallback((request:MonteCarloRequest,scenario:MonteCarloScenario,signature:string)=>{
+    if(scheduled.current!==null){clearTimeout(scheduled.current);scheduled.current=null;}
     worker.current?.terminate(); worker.current = null; setError('');
     try {
       validateMonteCarlo(request);
@@ -103,7 +105,20 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
       next.onerror = () => { if (worker.current !== next) return; next.terminate(); worker.current = null; setRunning(false); setError('No se pudo ejecutar Monte Carlo. Intenta de nuevo con menos trayectorias.'); };
       next.postMessage(capturedRequest);
     } catch (failure) { setRunning(false); setError(failure instanceof Error ? failure.message : 'Revisa los parámetros.'); }
-  }
+  },[]);
+  // Serialized inputs also capture provenance. A pending/old worker is stopped
+  // before a different company, strategy, quote or control can publish a result.
+  useEffect(()=>{
+    let active=true;
+    worker.current?.terminate();worker.current=null;
+    queueMicrotask(()=>{if(active){setRunning(false);setError('');}});
+    const captured=JSON.parse(signature) as {request:MonteCarloRequest|null;scenario:MonteCarloScenario|null};
+    if(cancelledSignature.current!==signature)cancelledSignature.current=null;
+    if(automatic&&captured.request&&captured.scenario&&cancelledSignature.current!==signature)scheduled.current=setTimeout(()=>{if(active)start(captured.request!,captured.scenario!,signature);},450);
+    return ()=>{active=false;if(scheduled.current!==null){clearTimeout(scheduled.current);scheduled.current=null;}worker.current?.terminate();worker.current=null;};
+  },[signature,automatic,start]);
+  function simulate(){if(request&&scenario){cancelledSignature.current=null;start(request,scenario,signature);}}
+  function cancel(){cancelledSignature.current=signature;if(scheduled.current!==null){clearTimeout(scheduled.current);scheduled.current=null;}worker.current?.terminate();worker.current=null;setRunning(false);}
   function exportRun() {
     if (!run) return;
     const artifact = { version: 1, measure: 'Q: neutral al riesgo; no probabilidad real calibrada', assumptions: 'GBM, volatilidad y tasas constantes; liquidación europea; financiación simétrica a r; dividendos y préstamo de acciones por paso; sin límites de margen', ...run };
@@ -113,14 +128,15 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
   }
   return <details className="panel monte-carlo-panel">
     <summary>Núcleo cuantitativo · Monte Carlo</summary>
-    <p>Explora miles de trayectorias bajo los supuestos de BSM. La frecuencia de beneficio pertenece al modelo neutral al riesgo; no es una predicción de éxito real.</p>
+    <p>Explora miles de trayectorias bajo los supuestos de BSM. La frecuencia de beneficio pertenece al modelo neutral al riesgo; no es una predicción de éxito real. Estos controles afectan esta ejecución detallada; la semilla y las trayectorias del core se guardan desde el escáner.</p>
+    <label className="mc-toggle"><input aria-label="Actualizar Monte Carlo automáticamente" type="checkbox" checked={automatic} onChange={event=>{cancelledSignature.current=null;setAutomatic(event.target.checked);}}/>Actualizar automáticamente al cambiar datos, estrategia o parámetros</label>
     <div className="mc-controls">
       <label>Posición a simular<select aria-label="Posición Monte Carlo" value={target} onChange={e => setTarget(e.target.value as 'single' | 'strategy')}><option value="single">Opción individual del modelo</option><option value="strategy" disabled={!research}>Estrategia seleccionada · contratos y fuentes</option></select></label>
       <label>Trayectorias<input aria-label="Trayectorias Monte Carlo" type="number" min="100" max="50000" step="100" value={paths} onChange={e => setPaths(e.target.value)}/></label>
       <label>Pasos por trayectoria<input aria-label="Pasos Monte Carlo" type="number" min="1" max="128" value={steps} onChange={e => setSteps(e.target.value)}/></label>
       <label>Semilla reproducible<input aria-label="Semilla Monte Carlo" type="number" min="0" max="4294967295" value={seed} onChange={e => setSeed(e.target.value)}/></label>
     </div>
-    {scenario ? <div className="mc-inputs"><p>{scenario.label}</p><p>Precio {money(scenario.basis.spot)} · {scenario.basis.days.toFixed(2)} días · volatilidad {percent(scenario.basis.volatility)} · tasa {percent(scenario.basis.rate)} · dividendo {percent(scenario.basis.dividendYield)}.</p>
+    {scenario ? <div className="mc-inputs"><p>{scenario.label}</p>{scenario.automaticEstimation&&<p role="status">Estimación automática: se usan contratos existentes con primas teóricas y volatilidad identificada. Los datos observados y las órdenes del bróker conservan sus validaciones.</p>}<p>Precio {money(scenario.basis.spot)} · {scenario.basis.days.toFixed(2)} días · volatilidad {percent(scenario.basis.volatility)} · tasa {percent(scenario.basis.rate)} · dividendo {percent(scenario.basis.dividendYield)}.</p>
       <ul>{scenario.basis.legs.map((leg, i) => <li key={i}>{leg.quantity > 0 ? '+' : ''}{leg.quantity} {leg.type.toUpperCase()} · strike efectivo {money(leg.strike)} · {leg.units} acciones entregables · prima {money(leg.premium)} por acción.</li>)}</ul>
       <p>Comisión de entrada: {money(scenario.basis.feePerContract)} por contrato/unidad de posición. La prima y las comisiones se financian o remuneran a la tasa indicada hasta el vencimiento.</p>
     </div> : <p role="status">{candidate.error}</p>}
@@ -131,10 +147,10 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
       <label>Préstamo anual de acciones · %<input aria-label="Préstamo Monte Carlo" type="number" min="0" max="100" step=".1" value={borrow} onChange={e => setBorrow(e.target.value)}/></label>
     </div><p>Cobertura idealizada: permite acciones cortas y financiación sin límite de margen. Compra al ask y vende al bid del spread supuesto. Los dividendos y el préstamo se acumulan por paso; aumentar pasos cambia la frecuencia y el coste de ajustar.</p></>}
     <div className="mc-actions"><button type="button" className="primary-button" disabled={!scenario || running} onClick={simulate}>{running ? 'Simulando…' : 'Simular Monte Carlo'}</button>
-      {running && <button type="button" className="secondary-button" onClick={() => { worker.current?.terminate(); worker.current = null; setRunning(false); }}>Cancelar simulación</button>}
+      {running && <button type="button" className="secondary-button" onClick={cancel}>Cancelar simulación</button>}
     </div>
     {error && <p role="alert">{error}</p>}
-    <div aria-live="polite">{running && <p role="status">Calculando trayectorias… puedes seguir utilizando el terminal.</p>}{stale && <p role="status" className="mc-stale">Resultado anterior: cambiaron las entradas o los controles. Ejecuta otra simulación para actualizarlo.</p>}</div>
+    <div aria-live="polite">{running && <p role="status">Calculando trayectorias… puedes seguir utilizando el terminal.</p>}{stale && <p role="status" className="mc-stale">Resultado anterior: cambiaron las entradas o los controles. {automatic?'El cálculo automático actualiza el resultado; si lo cancelaste puedes reanudar con «Simular Monte Carlo».':'Ejecuta otra simulación para actualizarlo.'}</p>}</div>
     {run && <section className="mc-results" aria-label="Resultados Monte Carlo">
       <p><strong>{stale ? 'Resultado anterior' : 'Resultado de la simulación'}</strong> · {run.scenario.label} · {run.result.paths.toLocaleString('es-MX')} trayectorias · {run.result.steps} pasos · semilla {run.result.seed} · {run.request.mode === 'delta-hedged' ? 'con cobertura delta' : 'sin cobertura'}.</p>
       <div className="mc-metrics">{[
@@ -150,6 +166,6 @@ export default function MonteCarloPanel({ input, premium, side = 'buy', context,
       <button type="button" className="secondary-button" onClick={exportRun}>Exportar simulación JSON</button>
       <details><summary>Entradas y supuestos de esta ejecución</summary><ul>{run.scenario.sources.map((source, i) => <li key={i}>{source}</li>)}{run.scenario.warnings.map((warning, i) => <li key={`w${i}`}>{warning}</li>)}</ul></details>
     </section>}
-    <p>Modelo: movimiento browniano geométrico, volatilidad y tasas constantes, dividendos continuos, vencimiento común y liquidación europea por efectivo. No modela saltos, cambios de IV, ejercicio anticipado ni asignación. PMCC requiere otro tratamiento por sus vencimientos distintos. Las simulaciones son un análisis separado del ranking y las órdenes.</p>
+    <p>Modelo: movimiento browniano geométrico, volatilidad y tasas constantes y dividendos continuos. En PMCC se evalúa al vencimiento corto y la LEAPS conserva valor temporal con su IV inicial constante. No modela saltos, cambios de IV, ejercicio anticipado ni asignación. Esta ejecución detallada usa los controles mostrados y permanece separada de las órdenes.</p>
   </details>;
 }

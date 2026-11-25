@@ -268,7 +268,7 @@ export class AlpacaOptionsClient {
     if (requested.legs || f5OptionSymbol.test(symbols[0])) {
       const opening = requested.legs?.some(leg => leg.position_intent.endsWith('_open')) ?? requested.position_intent?.endsWith('_open');
       const level = requested.legs ? 3 : requested.position_intent === 'buy_to_open' ? 2 : 1;
-      if (opening && account.optionsLevel < level) throw new BrokerError('broker_options_level_required', 409, 'La cuenta no tiene el nivel efectivo de opciones requerido.', false);
+      if (opening && (account.optionsLevel===null||account.optionsLevel < level)) throw new BrokerError('broker_options_level_required', 409, 'La cuenta no tiene el nivel efectivo de opciones requerido.', false);
       const contracts = await Promise.all(symbols.map(symbol => this.contract(symbol)));
       if (new Set(contracts.map(contract => contract.underlying)).size !== 1) throw new BrokerError('broker_order_invalid', 400, 'Todas las piernas deben pertenecer al mismo subyacente.', false);
       if (opening && Number(requested.limit_price) > 0 && Number(requested.limit_price) * Number(requested.qty) * 100 > account.optionsBuyingPower) throw new BrokerError('broker_insufficient_funds', 409, 'No hay poder de compra de opciones suficiente.', false);

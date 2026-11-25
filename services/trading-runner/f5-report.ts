@@ -2,7 +2,7 @@ import { f5OptionSymbol } from '../../src/features/f5/validation.ts';
 import type { F5BrokerOrder, F5Operation, F5Position } from '../../src/features/f5/types.ts';
 import type { F5AccountingActivity, F5AccountingBatch, F5Coverage, F5CycleReport, F5Report, F5ReportEvent, F5ReportMetrics } from '../../src/features/f5/report-types.ts';
 
-type Inputs = { operations: F5Operation[]; positions: F5Position[]; fills?: F5AccountingBatch; fees?: F5AccountingBatch; activities?: F5AccountingBatch; now?: () => number };
+type Inputs = { operations: F5Operation[]; positions: F5Position[]; fills?: F5AccountingBatch; fees?: F5AccountingBatch; activities?: F5AccountingBatch; now?: () => number; provider?:string };
 type Lot = { quantity: number; price: number | null };
 type WorkEvent = F5ReportEvent & { time: string; signed: number; multiplier: number; inventory: boolean; realized: number | null };
 type Context = { row: F5CycleReport; operations: F5Operation[]; events: WorkEvent[]; lots: Map<string, Lot[]>; cashKnown: boolean; fillsKnown: boolean; settlementsKnown: boolean; basisKnown: boolean; marksKnown: boolean; feesKnown: boolean; feeOrders: Set<string>; filledOrders: Set<string>; feeTotal: number; manualMixed: boolean };
@@ -22,7 +22,7 @@ function combined(metrics: F5ReportMetrics[]): F5ReportMetrics {
 const publicEvent = (event: WorkEvent): F5ReportEvent => { const { time: _time, signed: _signed, multiplier: _multiplier, inventory: _inventory, realized: _realized, ...visible } = event; return visible; };
 function event(activity: F5AccountingActivity, type: F5ReportEvent['type'], operationId: string | null, overrides: Partial<WorkEvent> = {}): WorkEvent {
   return { id: 'activity:' + activity.id, operationId, activityId: activity.id, type, symbol: activity.symbol, date: activity.date ?? dateOf(activity.transactionTime), quantity: activity.quantity, price: activity.price,
-    cashFlowUsd: null, feeUsd: null, source: 'Alpaca Paper account activity ' + activity.id, known: false, time: activity.transactionTime ?? (activity.date ? activity.date + 'T23:59:59.999Z' : ''), signed: 0, multiplier: activity.symbol && f5OptionSymbol.test(activity.symbol) ? 100 : 1, inventory: false, realized: null, ...overrides };
+    cashFlowUsd: null, feeUsd: null, source: 'Actividad del br?ker ' + activity.id, known: false, time: activity.transactionTime ?? (activity.date ? activity.date + 'T23:59:59.999Z' : ''), signed: 0, multiplier: activity.symbol && f5OptionSymbol.test(activity.symbol) ? 100 : 1, inventory: false, realized: null, ...overrides };
 }
 function unique(batch: F5AccountingBatch | undefined, warnings: string[]): F5AccountingActivity[] {
   if (!batch) return [];
@@ -96,7 +96,7 @@ export function buildF5Report(input: Inputs): F5Report {
       const allPriced = details.every(item => item.complete || item.quantity === 0 || item.price !== null && item.price >= 0);
       const aggregatePrice = number(order.filled_avg_price);
       const aggregate = complex && !allPriced && aggregatePrice !== null;
-      if (aggregate) context.events.push({ id: 'order:' + order.id, operationId: operation.id, activityId: null, type: 'order_fill', symbol: null, date: null, quantity: parentFilled, price: aggregatePrice, cashFlowUsd: round(-aggregatePrice * parentFilled * 100), feeUsd: null, source: 'Alpaca Paper net filled_avg_price ' + order.id, known: true, time: operation.createdAt, signed: 0, multiplier: 100, inventory: false, realized: null, reason: 'Prima neta confirmada del conjunto; no hay reparto observado completo entre piernas.' });
+      if (aggregate) context.events.push({ id: 'order:' + order.id, operationId: operation.id, activityId: null, type: 'order_fill', symbol: null, date: null, quantity: parentFilled, price: aggregatePrice, cashFlowUsd: round(-aggregatePrice * parentFilled * 100), feeUsd: null, source: (input.provider ?? 'Alpaca Paper') + ' net filled_avg_price ' + order.id, known: true, time: operation.createdAt, signed: 0, multiplier: 100, inventory: false, realized: null, reason: 'Prima neta confirmada del conjunto; no hay reparto observado completo entre piernas.' });
       for (const item of details) {
         if (item.quantity === 0) continue;
         const multiplier = f5OptionSymbol.test(item.symbol) ? 100 : 1, direction = item.side === 'buy' ? 1 : -1;
@@ -108,7 +108,7 @@ export function buildF5Report(input: Inputs): F5Report {
         } else {
           const known = item.price !== null && item.price >= 0;
           context.events.push({ id: 'order:' + item.order.id, operationId: operation.id, activityId: null, type: 'order_fill', symbol: item.symbol, date: null, quantity: item.quantity, price: known ? item.price : null,
-            cashFlowUsd: aggregate ? 0 : known ? round(-direction * item.quantity * item.price! * multiplier) : null, feeUsd: null, source: 'Alpaca Paper cumulative fill ' + item.order.id, known: known || aggregate, time: operation.createdAt, signed: direction * item.quantity, multiplier, inventory: true, realized: null,
+            cashFlowUsd: aggregate ? 0 : known ? round(-direction * item.quantity * item.price! * multiplier) : null, feeUsd: null, source: (input.provider ?? 'Alpaca Paper') + ' cumulative fill ' + item.order.id, known: known || aggregate, time: operation.createdAt, signed: direction * item.quantity, multiplier, inventory: true, realized: null,
             reason: aggregate ? 'Cantidad confirmada; la prima de esta pierna no se inventa a partir del neto.' : 'Promedio acumulado confirmado; no hay detalle completo de fechas de ejecución.' });
           for (const activity of item.fills) used.add(activity.id); // covered by this cumulative snapshot, not counted twice
           if (!known && !aggregate) context.cashKnown = false;
@@ -236,5 +236,5 @@ export function buildF5Report(input: Inputs): F5Report {
     metrics.coverage = { fills: input.fills?.complete ? 'complete' : 'partial', fees: 'unknown', settlements: input.activities?.complete ? 'complete' : 'partial', positions: 'unknown' };
     metrics.warnings = ['Sin instantáneas históricas de mercado, no se inventa PnL no realizado diario. Las comisiones diarias son el subconjunto observado.']; return { date, metrics };
   });
-  return { generatedAt, currency: 'USD', source: 'Alpaca Paper: cumulative order fills, account activities and current positions', totals: combined(cycles.map(cycle => cycle.metrics)), cycles, strategies, daily, unattributed, warnings: [...new Set(warnings)] };
+  return { generatedAt, currency: 'USD', source: (input.provider ?? 'Alpaca Paper') + ': cumulative order fills, account activities and current positions', totals: combined(cycles.map(cycle => cycle.metrics)), cycles, strategies, daily, unattributed, warnings: [...new Set(warnings)] };
 }

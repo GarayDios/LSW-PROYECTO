@@ -1,7 +1,7 @@
 import type { ResearchFundamentals } from '../../cores/compartido/research-model.ts';
 import { deriveSecFundamentals, missingFundamentals } from '../../cores/04-analisis-fundamental/sec-fundamentals.ts';
 export { deriveSecFundamentals, missingFundamentals } from '../../cores/04-analisis-fundamental/sec-fundamentals.ts';
-import { numeric, providerFailure, record, researchJson, ResearchProviderError, validateResearchRequest, type ResearchFetch } from './http.ts';
+import { numeric, providerFailure, record, researchJson, researchText, ResearchProviderError, validateResearchRequest, type ResearchFetch } from './http.ts';
 
 export type SecResearchConfig = { userAgent: string };
 const SOURCE = 'SEC EDGAR Company Facts';
@@ -11,7 +11,7 @@ let lastSecStartAt = 0;
 let pendingSecRequests = 0;
 
 /** Shared per-process gate; queued requests expire rather than waiting indefinitely. */
-async function secJson(url: URL, headers: Record<string, string>, fetcher: ResearchFetch): Promise<unknown> {
+export async function secJson(url: URL, headers: Record<string, string>, fetcher: ResearchFetch, text=false): Promise<unknown> {
   const queuedAt = Date.now();
   const busy = () => new ResearchProviderError(null, 'La cola SEC está ocupada; vuelve a intentar en unos segundos.');
   if (pendingSecRequests >= 24) throw busy();
@@ -25,8 +25,10 @@ async function secJson(url: URL, headers: Record<string, string>, fetcher: Resea
   });
   secGate = turn.catch(() => {});
   try { await turn; } finally { pendingSecRequests--; }
-  return researchJson(url, headers, fetcher);
+  return text?researchText(url,headers,fetcher):researchJson(url, headers, fetcher);
 }
+
+export async function secText(url:URL,headers:Record<string,string>,fetcher:ResearchFetch):Promise<string>{return await secJson(url,{Accept:'application/xml,text/xml;q=0.9',...headers},fetcher,true) as string;}
 
 function cachedTickers(headers: Record<string, string>, fetcher: ResearchFetch): Promise<unknown> {
   const cached = tickerCache.get(fetcher);

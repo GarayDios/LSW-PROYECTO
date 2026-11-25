@@ -1,0 +1,19 @@
+.strategy-recommender .panel,.profitability-outlook{min-width:0}
+.strategy-recommender p,.profitability-outlook p{line-height:1.65;color:var(--text-secondary,#a6b6c9)}
+.strategy-recommender h3,.profitability-outlook h3{margin:18px 0 10px}
+.strategy-recommender li{margin:10px 0;overflow-wrap:anywhere;line-height:1.5}
+.contract-recommendation h3{margin-top:0}
+.contract-recommendation .table-scroll{max-width:100%;overflow-x:auto;margin:16px 0}
+.contract-recommendation table{min-width:980px;white-space:nowrap}
+.contract-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin:18px 0}
+.contract-metrics span{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#a6b6c9}
+.contract-metrics b{font-size:16px;color:#edf3fc}
+.profitability-outlook .scanner-result-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:18px 0}
+.profitability-outlook .scanner-result-stats span{display:flex;flex-direction:column;gap:10px}
+.profitability-outlook details{margin-top:18px}
+.historical-replay svg{display:block;width:100%;height:auto;background:#10171d;border-radius:8px;margin:16px 0}
+.historical-replay .replay-controls{display:flex;flex-wrap:wrap;align-items:end;gap:16px;margin:18px 0}
+.historical-replay .replay-controls label{display:grid;gap:8px;min-width:140px}
+.historical-replay input,.historical-replay select{max-width:100%;min-height:36px}
+.historical-replay .replay-controls input[type=range]{min-width:240px}
+@media(max-width:600px){.historical-replay .replay-controls label{width:100%;min-width:0}.historical-replay .replay-controls input[type=range]{min-width:0;width:100%}}

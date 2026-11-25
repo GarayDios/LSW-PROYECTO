@@ -1,0 +1,10 @@
+import type { ScannerSettings } from '../../../cores/evaluacion/scanner-settings';
+export default function ScannerUniverse({settings,onChange,count}:{settings:ScannerSettings;onChange:(value:ScannerSettings)=>void;count:number}){
+  const update=(patch:Partial<ScannerSettings['scan']>)=>onChange({...settings,scan:{...settings.scan,...patch}});
+  return <section className="scanner-section scanner-universe" aria-label="Universo del escaneo"><div className="step-heading"><h3>Universo y resultados</h3><span className="section-code">{count} activos</span></div>
+    <label>Universo<select aria-label="Universo del escaneo" value={settings.scan.universe} onChange={event=>update({universe:event.target.value as ScannerSettings['scan']['universe']})}><option value="catalog">Acciones del catálogo · 14</option><option value="current-list">Mi lista actual</option><option value="technology">Tecnología y semiconductores</option></select></label>
+    <div className="field-grid"><label>Confluencia mínima · %<input aria-label="Confluencia mínima del escaneo" type="number" min="0" max="100" value={settings.scan.minConfluence} onChange={event=>{const minConfluence=event.currentTarget.valueAsNumber;if(Number.isFinite(minConfluence)&&minConfluence>=0&&minConfluence<=100)update({minConfluence});}}/></label><label>Mostrar<select aria-label="Máximo de resultados del escaneo" value={settings.scan.limit} onChange={event=>update({limit:Number(event.target.value) as 5|10|14})}><option value="14">Todos los elegibles</option><option value="5">Mejores 5</option><option value="10">Mejores 10</option></select></label></div>
+    <label>Ordenar por<select aria-label="Orden del escaneo" value={settings.scan.order} onChange={event=>update({order:event.target.value as 'confluence'|'pop'})}><option value="confluence">Confluencia de cores</option><option value="pop">PoP Monte Carlo del modelo</option></select></label>
+    <p className="core-hint">El universo elige qué activos consultar. La semilla pertenece a Monte Carlo. La confluencia filtra compatibilidad; no es confianza estadística ni rendimiento esperado. Las PoP ausentes quedan al final.</p>
+  </section>;
+}

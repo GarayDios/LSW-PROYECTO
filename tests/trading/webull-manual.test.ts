@@ -29,6 +29,7 @@ test('Webull requires explicit sandbox config and never accepts a production end
 test('Webull signs the exact v3 order body and hides provider diagnostics on denied or redirected requests',async()=>{
   const client=new WebullClient(config,async(url,init)=>{
     assert.equal(new URL(String(url)).host,config.host);assert.equal(init?.redirect,'manual');
+    if(new URL(String(url)).pathname==='/auth/tokens/create')return Response.json({token:'fixture-session-token',status:'NORMAL',expires:Date.now()+900000});
     const body=JSON.parse(String(init?.body));assert.equal(body.account_id,'account');assert.equal(body.new_orders[0].support_trading_session,'CORE');assert.equal(body.new_orders[0].quantity,'1');
     assert.ok(new Headers(init?.headers).get('x-signature'));assert.ok(!new Headers(init?.headers).has('x-app-secret'));
     return Response.json({client_order_id:'fixture'});

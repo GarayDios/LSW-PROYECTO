@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from 'react';
+import InstitutionalPanel from './institutional-panel';
+import { COMPANY_METRIC_CATEGORIES, companyMetricDefinition, type CompanyDetails } from '../../../cores/04-analisis-fundamental/company-metrics';
 import { missingVariable } from '../../../cores/compartido/research-model';
 import type { ResearchSnapshot, ResearchVariable } from '../../../cores/compartido/research-model';
 import type { StrategyId } from '../../../cores/compartido/types';
@@ -21,6 +24,39 @@ function Variable({ label, variable, format = 'number', accountingPeriod = false
   return <div className={`research-variable ${present ? '' : 'research-missing'}`}><div><span>{label}</span><strong>{value}{previous && <small>Último dato recibido · anterior</small>}</strong></div><small>{variable.source} · {previous ? 'Referencia anterior; excluida del cálculo actual' : variable.kind === 'observed' ? 'Observado' : variable.kind === 'estimated' ? 'Estimado' : variable.kind === 'assumed' ? 'Supuesto explícito' : 'Faltante'}</small><small>{accountingPeriod ? 'Periodo contable al' : 'Observado'}: {accountingPeriod && !previous ? periodDate(variable.observedAt) : timestamp(previous?.observedAt ?? variable.observedAt)} · Disponible: {timestamp(previous?.receivedAt ?? variable.availableAt)}</small>{variable.reason && <p>{variable.reason}</p>}</div>;
 }
 
+function CompanyDetailsSection({ details }: { details?: CompanyDetails }) {
+  const [search, setSearch] = useState('');
+  const entries = Object.entries(details?.metrics ?? {});
+  const filtered = entries.filter(([key]) => `${key} ${companyMetricDefinition(key).label}`.toLocaleLowerCase('es').includes(search.trim().toLocaleLowerCase('es')));
+  const profile = details?.profile;
+  const recommendation = details?.recommendations[0];
+  return <details open className="company-details fundamental-analysis">
+    <summary>Información empresarial automática · Finnhub · {entries.length} métricas recibidas</summary>
+    <p className="research-message" role="status">{details?.status.message ?? 'Configura FINNHUB_API_KEY en el servidor para consultar las métricas empresariales de Finnhub.'}</p>
+    {(!details || details.status.status==='missing_config') && <p className="research-message"><a href="https://finnhub.io/register" target="_blank" rel="noopener noreferrer">Crear cuenta gratuita en Finnhub</a>. Guarda la clave en FINNHUB_API_KEY de .env.local y reinicia el servidor. Después pulsa «Actualizar variables» con un corte actual. La clave permanece en el servidor.</p>}
+    {profile?.name && <div className="company-profile">
+      <strong>{profile.name}</strong>
+      <dl>{[['Sector',profile.industry],['Bolsa',profile.exchange],['País',profile.country],['Moneda',profile.currency],['Salida a bolsa',profile.ipo]].map(([label,value])=>value&&<div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      {profile.website && <a href={profile.website} target="_blank" rel="noopener noreferrer">Sitio de la empresa</a>}
+    </div>}
+    {!!entries.length && <>
+      <p className="research-message">Consulta: {timestamp(details!.fetchedAt)} ET. Los valores conservan su período TTM, anual o trimestral; no se atribuyen a una publicación histórica anterior. El core fundamental utiliza el margen neto, ROE y razón corriente disponibles junto con la solvencia de SEC. Los demás campos aportan contexto y se muestran sin convertirlos en señales automáticas.</p>
+      <label className="company-metrics-search">Buscar métrica empresarial<input type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Margen, P/E, crecimiento…"/></label>
+      {!filtered.length && <p className="research-message">No hay métricas recibidas que coincidan con la búsqueda.</p>}
+      {COMPANY_METRIC_CATEGORIES.map(category=>{
+        const metrics=filtered.filter(([key])=>companyMetricDefinition(key).category===category.id);
+        return metrics.length>0&&<details key={category.id} open={category.id==='profitability'||category.id==='valuation'}><summary>{category.label} · {metrics.length}</summary><div className="research-grid">{metrics.map(([key,variable])=>{
+          const definition=companyMetricDefinition(key);
+          return <Variable key={key} label={`${definition.label} · ${definition.period}${definition.category==='other'?' · unidad del proveedor':''}`} variable={variable} format={definition.percent?'percent':'number'}/>;
+        })}</div></details>;
+      })}
+    </>}
+    {recommendation && <details><summary>Recomendaciones de analistas · {recommendation.period}</summary><p className="research-message">Conteos publicados por Finnhub: compra fuerte {recommendation.strongBuy}, compra {recommendation.buy}, mantener {recommendation.hold}, venta {recommendation.sell}, venta fuerte {recommendation.strongSell}. Recibidos {timestamp(details!.fetchedAt)} ET. No constituyen una probabilidad ni modifican la puntuación automáticamente.</p></details>}
+    {details?.warnings.map(warning=><p className="research-message" key={warning}>{warning}</p>)}
+    <p className="research-message"><a href="https://finnhub.io/docs/api/company-basic-financials" target="_blank" rel="noopener noreferrer">Cobertura de Basic Financials</a>. Los campos recibidos y permisos dependen del plan y de la empresa.</p>
+  </details>;
+}
+
 export default function CompanyResearchPanel({ research, loading, error, onRetry, onCurrent, strategy, days, scenarioDividend, scenarioAvailable,analysisSettings }: { research: ResearchSnapshot | null; loading: boolean; error: string; onRetry: () => void; onCurrent?: () => void; strategy: StrategyId; days: number; scenarioDividend?: number; scenarioAvailable?: boolean;analysisSettings?:AnalysisSettings }) {
   const policy=research&&analysisSettings?analysisPolicy(analysisSettings,research):null;
   const inputs = observedOptionInputs(research, strategy, days,policy??{});
@@ -32,6 +68,7 @@ export default function CompanyResearchPanel({ research, loading, error, onRetry
     {loading && <p className="research-message" role="status">Consultando mercado, opciones, estados financieros y contexto externo…</p>}
     {error && <p className="research-message research-warning" role="alert">{error} Las variables faltantes no se sustituyen por datos de muestra.</p>}
     {research && <>
+      {research.dataMode==='sandbox'&&<p className="research-message research-warning">WEBULL SANDBOX · precios y contratos del entorno de pruebas. Los fundamentales conservan sus fuentes SEC / Finnhub. Las simulaciones no acreditan resultados de producción.</p>}
       <div className="research-grid">
         {policy&&<Variable label="Dividendo usado por el modelo de ranking" variable={modelDividendYield(research,policy)} format="percent"/>}
         {macro&&<Variable label="Tasa anual continua aplicada al modelo" variable={macro.rate} format="percent"/>}
@@ -40,8 +77,10 @@ export default function CompanyResearchPanel({ research, loading, error, onRetry
       {macro&&<p className="research-message" role="status">{macro.manualRate ? "Tasa manual activada: sustituye a FRED en el ranking y las valoraciones de este escenario." : macro.rateAvailable ? "Tasa automática de FRED/ALFRED disponible para el corte." : "Sin tasa válida para el corte: las valoraciones que la requieren permanecen incompletas."} {macro.explanation}</p>}
       {research.cashDividends&&<details><summary>Dividendos futuros recibidos del proveedor</summary><p className="research-message">{research.cashDividends.status.message} El calendario de pagos no se convierte automáticamente en un dividendo continuo.</p><ul>{research.cashDividends.events.map(e=><li key={e.id}>{e.exDate} · USD {e.amount.toFixed(4)} por acción · recibido {timestamp(e.availableAt)}</li>)}</ul>{research.cashDividends.warnings.map(w=><p key={w} className="research-message">{w}</p>)}</details>}
       <p className="research-message">{research.symbol} · Corte de decisión: {timestamp(research.asOf)} ET. Solo se admiten datos conocidos en ese momento. HV describe el histórico; IV procede de un contrato de opciones.</p>
-      <p className="research-message">Fundamentales del terminal: SEC EDGAR. <a href={finvizCompanyUrl(research.symbol)} target="_blank" rel="noopener noreferrer">Consultar {research.symbol} en Finviz</a> como referencia externa; los valores de esa página no se importan al análisis.</p>
+      <p className="research-message">Estados financieros: SEC EDGAR. Información empresarial complementaria: Finnhub, consultada automáticamente cuando está configurada. <a href={finvizCompanyUrl(research.symbol)} target="_blank" rel="noopener noreferrer">Consultar {research.symbol} en Finviz</a> permite contrastar la ficha; sus valores solo participan si se cargan explícitamente en el panel de captura manual.</p>
       <div className="research-provider-list">{research.quality.sources.map((source, index) => <div key={`${source.source}-${index}`}><strong>{source.source}</strong><span>{source.status === 'ready' ? 'Disponible' : source.status === 'partial' ? 'Parcial' : source.status === 'missing_config' ? 'Configuración pendiente' : 'No disponible'}</span><p>{source.message}</p></div>)}</div>
+      <CompanyDetailsSection details={research.companyDetails}/>
+      <InstitutionalPanel data={research.institutional}/>
       <details open><summary>Mercado y volatilidad</summary><div className="research-grid"><Variable label={research.market.spotBasis==='quote'?'Punto medio reciente de la acción':'Último cierre conocido'} variable={research.market.spot} format="money"/><Variable label="Volatilidad histórica anualizada (HV)" variable={research.market.historicalVolatility} format="percent"/><Variable label="Rendimiento de 20 sesiones" variable={research.market.momentum20} format="percent"/><Variable label="Volumen monetario medio (20 sesiones)" variable={research.market.averageDollarVolume20} format="money"/></div></details>
       <details open><summary>Contrato y entradas del modelo de opciones</summary>{contract ? <><p className="research-message">{contract.symbol} · {contract.type} · Vence {contract.expiration} · Ejercicio {contract.style === 'american' ? 'americano' : contract.style === 'european' ? 'europeo' : 'sin verificar'}. {contract.style === 'american' && 'BSM sería una aproximación europea; no valora el ejercicio anticipado.'}</p><div className="research-grid"><Variable label="Precio de ejercicio (strike)" variable={contract.strike} format="money"/><Variable label="Volatilidad implícita del contrato (IV)" variable={contract.impliedVolatility} format="percent"/><Variable label="Bid" variable={contract.bid} format="money"/><Variable label="Ask" variable={contract.ask} format="money"/><Variable label="Interés abierto (OI)" variable={contract.openInterest}/><Variable label="Multiplicador de prima y ejercicio" variable={contract.multiplier??missingVariable("Alpaca","Sin dato del proveedor")}/><Variable label="Acciones entregables verificadas" variable={contract.deliverableShares??missingVariable("Alpaca","Sin entregable simple verificado")}/><Variable label="Punto medio bid/ask" variable={contract.premium} format="money"/></div></> : <p className="research-message">{research.options.status.message} No hay un contrato verificable para calcular BSM, griegas o probabilidad de beneficio.</p>}<div className="research-grid"><Variable label="Tasa externa continua de FRED/ALFRED" variable={research.macro.riskFreeRate} format="percent"/><Variable label="Dividendo continuo aplicado al modelo" variable={modelDividendYield(research,policy??{})} format="percent"/>{!inputs && scenarioDividend !== undefined && <div className="research-variable"><div><span>Dividendo supuesto del escenario educativo</span><strong>{scenarioDividend.toFixed(2)}%</strong></div><small>Supuesto editable · no publicado por la fuente</small><p>{scenarioAvailable ? 'Este porcentaje se usa en las griegas educativas mostradas arriba.' : 'Supuesto preparado; todavía faltan otras entradas para calcular el escenario.'} No completa el ranking observado. Puedes cambiarlo junto a las griegas.</p></div>}</div><p className={`research-message ${inputs ? '' : 'research-warning'}`}>{inputs ? 'Entradas completas para el contrato mostrado. La probabilidad de una sola pierna es teórica y neutral al riesgo; no mide el éxito real de una estrategia.' : 'Modelo con datos observados incompleto: requiere contrato, IV, cotización, tasa y dividendos verificables. Las griegas del escenario educativo, cuando se muestran arriba, utilizan supuestos identificados. La compatibilidad heurística de los otros cores no es una probabilidad de éxito.'}</p></details>
       <details><summary>Variables internas de la empresa · SEC</summary><div className="research-grid"><Variable accountingPeriod label="Ingresos anuales" variable={research.fundamentals.annualRevenue} format="money"/><Variable accountingPeriod label="Utilidad neta anual" variable={research.fundamentals.annualNetIncome} format="money"/><Variable accountingPeriod label="Activos" variable={research.fundamentals.assets} format="money"/><Variable accountingPeriod label="Pasivos" variable={research.fundamentals.liabilities} format="money"/><Variable accountingPeriod label="Efectivo" variable={research.fundamentals.cash} format="money"/><Variable accountingPeriod label="Margen neto" variable={research.fundamentals.netMargin} format="percent"/><Variable accountingPeriod label="Pasivos / activos" variable={research.fundamentals.liabilitiesToAssets} format="percent"/><Variable accountingPeriod label="Acciones en circulación" variable={research.fundamentals.sharesOutstanding}/></div></details>

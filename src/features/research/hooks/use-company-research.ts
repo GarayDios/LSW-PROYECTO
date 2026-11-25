@@ -4,18 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ResearchSnapshot } from '../../../cores/compartido/research-model';
 
 /** An aborted or older query must never replace the selected company's data. */
-export function useCompanyResearch({ enabled, symbol, start, end, cutoff }: {
-  enabled: boolean; symbol: string; start: string; end: string; cutoff?: string;
+export function useCompanyResearch({ enabled, symbol, start, end, cutoff,provider='alpaca' }: {
+  enabled: boolean; symbol: string; start: string; end: string; cutoff?: string;provider?:'alpaca'|'webull';
 }) {
   const [revision, setRevision] = useState(0);
   const [state, setState] = useState<{ key: string; research: ResearchSnapshot | null; loading: boolean; error: string }>({ key: '', research: null, loading: false, error: '' });
-  const key = `${symbol}|${start}|${end}|${cutoff}`;
+  const key = `${provider}|${symbol}|${start}|${end}|${cutoff}`;
   const reload = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
     if (!enabled) { setState({ key, research: null, loading: false, error: '' }); return; }
     const controller = new AbortController();
     setState({ key, research: null, loading: true, error: '' });
-    const query = new URLSearchParams({ symbol, start, end, ...(cutoff ? { cutoff } : {}) });
+    const query = new URLSearchParams({ symbol, start, end,provider, ...(cutoff ? { cutoff } : {}) });
     void (async () => {
       try {
         const response = await fetch(`/api/research/company?${query}`, { signal: controller.signal, credentials: 'same-origin', cache: 'no-store' });
@@ -29,6 +29,6 @@ export function useCompanyResearch({ enabled, symbol, start, end, cutoff }: {
       }
     })();
     return () => controller.abort();
-  }, [enabled, key, symbol, start, end, cutoff, revision]);
+  }, [enabled, key, symbol, start, end, cutoff, revision,provider]);
   return { research: enabled && state.key === key ? state.research : null, loading: enabled && (state.key !== key || state.loading), error: enabled && state.key === key ? state.error : '', reload };
 }

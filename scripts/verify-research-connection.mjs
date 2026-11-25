@@ -6,19 +6,27 @@ import { fetchCompanyResearch } from '../src/api/research/company.ts';
 import { modelMacroContext } from '../src/features/research/model-macro.ts';
 import { analysisPolicy, defaultAnalysisSettings } from '../src/features/research/analysis-settings.ts';
 import { observedOptionInputs, selectObservedOption, rankObservedCompanies } from '../src/cores/evaluacion/observed-ranking.ts';
+import {strategyMonteCarloScenario} from '../src/cores/evaluacion/monte-carlo-scenario.ts';
+import {analyzeStrategy} from '../src/cores/evaluacion/strategy-analysis.ts';
+import {defaultScannerSettings} from '../src/cores/evaluacion/scanner-settings.ts';
+import {evaluateScanner} from '../src/cores/evaluacion/scanner.ts';
+import {strategyOutlook} from '../src/cores/evaluacion/strategy-outlook.ts';
 
 const environmentFile = fileURLToPath(new URL('../.env.local', import.meta.url));
 if (existsSync(environmentFile)) process.loadEnvFile(environmentFile);
 try {
   const config = readBrokerConfig(process.env);
   if (!config) throw new Error('unconfigured');
+  const symbol=(process.argv[2]??'AAPL').toUpperCase();
+  if(!/^[A-Z][A-Z0-9.\-]{0,14}$/.test(symbol))throw new Error('invalid symbol');
   const now = new Date(), end = newYorkDate(now.getTime()), startDate = new Date(end + 'T12:00:00Z');
   startDate.setUTCFullYear(startDate.getUTCFullYear() - 3);
-  const history = await fetchAlpacaHistory(config, { symbol: 'AAPL', start: startDate.toISOString().slice(0, 10), end, interval: '1d' });
-  const research = await fetchCompanyResearch({ symbol: 'AAPL', bars: history.bars, asOf: now.toISOString(), historySource: `alpaca:${history.feed}`,
+  const history = await fetchAlpacaHistory(config, { symbol, start: startDate.toISOString().slice(0, 10), end, interval: '1d' });
+  const research = await fetchCompanyResearch({ symbol, bars: history.bars, asOf: now.toISOString(), historySource: `alpaca:${history.feed}`,
     alpaca: { apiKey: config.apiKey, secretKey: config.secretKey, stockFeed: config.dataFeed, optionsFeed: process.env.ALPACA_OPTIONS_FEED === 'opra' ? 'opra' : 'indicative' },
     ...(process.env.SEC_USER_AGENT ? { sec: { userAgent: process.env.SEC_USER_AGENT } } : {}),
     ...(process.env.FRED_API_KEY ? { fred: { apiKey: process.env.FRED_API_KEY } } : {}),
+    ...(process.env.FINNHUB_API_KEY?.trim()?{finnhub:{apiKey:process.env.FINNHUB_API_KEY.trim()}}:{}),
   }, fetch, now);
   const policy = analysisPolicy(defaultAnalysisSettings, research);
   const macro = modelMacroContext(research, policy);
@@ -35,6 +43,17 @@ try {
     calendarValuationHorizons: research.options.contracts.filter(c=>c.valuationExpiry).length,
     underlyingPriceBasis:research.market.spotBasis??'daily-close',
     declaredCashDividendEvents:research.cashDividends?.events.length??0,
+    companyMetrics:{status:research.companyDetails?.status.status,count:Object.keys(research.companyDetails?.metrics??{}).length},
+    institutional:{status:research.institutional?.status.status,comparable:research.institutional?.comparable,direction:research.institutional?.direction.value,managers:research.institutional?.managers.map(m=>({name:m.name,message:m.message,current:m.current?.period,previous:m.previous?.period,change:m.change,splitFactor:m.splitFactor}))},
+    monteCarloReadiness:['wheel','pmcc','backspread','gamma'].flatMap(strategy=>['auto','observed','estimated'].map(dataMode=>{
+      const selected=analysisPolicy({...defaultAnalysisSettings,scanner:{...defaultScannerSettings,monteCarlo:{...defaultScannerSettings.monteCarlo,dataMode}}},research),a=analyzeStrategy(research,strategy,30,selected),scenario=strategyMonteCarloScenario(research,strategy,30,selected);
+      const core=evaluateScanner(research,strategy,30,{...selected.scanner,cores:Object.fromEntries(Object.entries(selected.scanner.cores).map(([id,entry])=>[id,{...entry,enabled:id==='monteCarlo'}]))},selected);
+      return {strategy,dataMode,available:!!scenario.scenario,scenarioDataMode:scenario.scenario?.dataMode??null,automaticEstimation:scenario.scenario?.automaticEstimation??false,coreProbabilityOfProfit:core.monteCarloPop,scenarioError:scenario.error??null,observedAnalysisMissing:a.missing};
+    })),
+    strategyOutlooks:['wheel','pmcc','backspread','gamma'].map(strategy=>{
+      const outlook=strategyOutlook(research,strategy,30,defaultAnalysisSettings);
+      return {strategy,scenarioDataMode:outlook.resolved.scenario?.dataMode??null,horizonSessions:outlook.horizonSessions,profitability:outlook.profitability,forecastValidation:{periods:outlook.forecast?.validation.periods.length??0,passed:outlook.forecast?.validation.passed??false},executionReady:outlook.executionReady};
+    }),
     automaticInputs: {
       annualDividendYieldPercent:research.fundamentals.dividendYield.value===null?null:research.fundamentals.dividendYield.value*100,
       dividendKind:research.fundamentals.dividendYield.kind,

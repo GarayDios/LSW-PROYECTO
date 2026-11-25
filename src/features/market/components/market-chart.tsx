@@ -35,7 +35,7 @@ type MarketChartProps = {
   observedOption?: { spot: number; strike: number; volatility: number; days: number; rate: number; dividendYield: number; premium: number; type: OptionType; side: 'buy'|'sell'; contractSymbol: string } | null;
   history?: Candle[];
   source?: MarketSource;
-  feed?: 'iex' | 'sip';
+  feed?: 'iex' | 'sip'|'sandbox';
   signals?: AnalysisSignal[];
   validationStartTime?: number | null;
   loading?: boolean;
@@ -97,7 +97,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
   const WIDTH = Math.max(720, viewportWidth), RIGHT = WIDTH - 88;
   const dataRight = projection ? RIGHT - Math.min(190, (RIGHT - LEFT) * .24) : RIGHT;
   const newsHeight = studies.news ? 64 : 0, volumeBottom = VOLUME_BOTTOM + newsHeight, height = HEIGHT + newsHeight;
-  const newsSnapshot = news?.snapshot?.symbol === symbol && (source === 'alpaca' || news.snapshot.news.articles.every(a => a.headline.startsWith('DEMO:'))) ? news.snapshot : null;
+  const newsSnapshot = news?.snapshot?.symbol === symbol && (source !== 'demo' || news.snapshot.news.articles.every(a => a.headline.startsWith('DEMO:'))) ? news.snapshot : null;
   const newsViewStart = viewWindow === 'all' ? startDate! : newsSessionDate(history[0].time);
   const newsGroups = useMemo(() => studies.news && newsSnapshot ? groupChartNews({ articles: newsSnapshot.news.articles,
     history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: endDate!, left: LEFT, right: dataRight }) : [],
@@ -238,7 +238,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
     badgeY.set(badge.id, location); priorBadgeY = location;
   }
   const validationX = validationStartTime === null ? null : Math.max(LEFT, x(bucketForTime(validationStartTime)) - step / 2);
-  const sourceLabel = source === 'demo' ? 'Datos simulados' : `Histórico Alpaca · ${(feed ?? 'iex').toUpperCase()} · ajustado por splits`;
+  const sourceLabel = source === 'demo' ? 'Datos simulados' : source==='webull'?'Histórico Webull Sandbox · ajuste por splits no declarado':`Histórico Alpaca · ${(feed ?? 'iex').toUpperCase()} · ajustado por splits`;
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -254,7 +254,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
     <div ref={container} className="market-chart" style={{ width: "100%", minWidth: 0, position: "relative" }}>
       <div className="history-summary"><strong>{startDate} → {endDate}</strong><span>{loadedHistory.length.toLocaleString('es-MX')} velas · {interval} · ET</span><button className="secondary-button" onClick={()=>{
         const csv='Fecha UTC,Apertura,Maximo,Minimo,Cierre,Volumen\r\n'+loadedHistory.map(c=>[new Date(c.time).toISOString(),c.open,c.high,c.low,c.close,c.volume].join(',')).join('\r\n');
-        const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=`${symbol}-${startDate}-${endDate}-${source==='demo'?'simulado':'alpaca'}.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+        const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=`${symbol}-${startDate}-${endDate}-${source==='demo'?'simulado':source}.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       }}>Exportar velas CSV</button></div>
       <div className="history-signal-legend"><span>{sourceLabel}</span>{signals.length > 0 && <><span className="buy">▲ Entrada por regla</span><span className="sell">▼ Salida por regla</span></>}{validationX !== null && <span className="validation">Zona azul: validación temporal</span>}</div>
       {onStudyToggle && <ChartStudyToolbar studies={studies} onToggle={onStudyToggle}/>}
@@ -382,7 +382,7 @@ function HistoryChart({ candles, history, loadedHistory, viewWindow, onViewWindo
         {(studies.volatilityBands || studies.riskScenario) && <p>{bandVolatility === null ? 'Sin volatilidad histórica disponible para dibujar las bandas y el escenario.' : `${source === 'demo' ? 'Volatilidad supuesta del escenario' : 'Volatilidad histórica observada (HV)'}: ${(bandVolatility * 100).toFixed(1)}% anual. Horizonte: ${Math.max(1, days)} días naturales desde el último cierre de la vista. ${studies.volatilityBands ? 'Bandas ±1σ; describen variabilidad, no un objetivo de precio.' : ''}`}</p>}
         {studies.riskScenario && sigma !== null && <p>Escenario −2σ: caída ilustrativa de {(2 * sigma * 100).toFixed(1)}%. No representa pérdida máxima ni sustituye los límites de riesgo de la operación.</p>}
       </div>}
-      <p className="history-footnote">{source === 'demo' ? 'Datos sintéticos · sesiones lunes–viernes, sin festivos ni medias sesiones.' : `Datos históricos ${(feed??'iex').toUpperCase()} · ${feed==='sip'?'cobertura consolidada según permisos de la cuenta':'IEX es una sola bolsa, no todo el volumen del mercado'}.`}{history.length>candles.length?` Vista agrupada en ${candles.length} velas; el CSV conserva las ${history.length} velas originales.`:''} Indicadores calculados sobre la serie original. Ocultar capas conserva los cálculos de señales y ranking.</p>
+      <p className="history-footnote">{source === 'demo' ? 'Datos sintéticos · sesiones lunes–viernes, sin festivos ni medias sesiones.' : source==='webull'?'Datos históricos del sandbox Webull; ajuste por splits no declarado.' : `Datos históricos ${(feed??'iex').toUpperCase()} · ${feed==='sip'?'cobertura consolidada según permisos de la cuenta':'IEX es una sola bolsa, no todo el volumen del mercado'}.`}{history.length>candles.length?` Vista agrupada en ${candles.length} velas; el CSV conserva las ${history.length} velas originales.`:''} Indicadores calculados sobre la serie original. Ocultar capas conserva los cálculos de señales y ranking.</p>
       <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} aria-live="polite">
         {current ? `${symbol}: apertura ${formatPrice(current.open)}, máximo ${formatPrice(current.high)}, mínimo ${formatPrice(current.low)}, cierre ${formatPrice(current.close)}. ${sourceLabel}.` : ""}
       </span>

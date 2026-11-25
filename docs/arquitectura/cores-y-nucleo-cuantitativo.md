@@ -36,17 +36,33 @@ la valoración BSM de la LEAPS al vencimiento de la call corta para PMCC.
 Las noticias pueden cambiar el precio
 del escenario sin cambiar el payoff si no se cruza un strike.
 
-Monte Carlo ejecuta 2,000 trayectorias con semilla fija, primas de entrada y
+Monte Carlo ejecuta por defecto 2,000 trayectorias con semilla 20261124, primas de entrada y
 comisiones de la estrategia. Mantiene su PoP neutral al riesgo separada del
 escenario de sentimiento. PMCC simula hasta el primer vencimiento y conserva
 el plazo y la IV de cada pierna al marcar su valor. Gamma muestra el
-straddle sin cobertura, identificado como tal. El flujo institucional exige
-`institutionalFlow` observado, normalizado, reciente y con fuente; no se
-deduce del volumen ni del open interest. El proveedor actual no lo suministra.
+straddle sin cobertura, identificado como tal. Los controles permiten guardar
+semilla y entre 100 y 10,000 trayectorias del core. La simulación detallada tiene
+sus propios controles y toma esos valores como iniciales al abrirla. Cambiar la
+semilla solo cambia el muestreo; no completa datos ni mejora supuestos.
+
+El escaneo utiliza un universo explícito: 14 acciones del catálogo, la lista
+actual o el subconjunto de tecnología y semiconductores. No representa todos los
+activos estadounidenses ni añade ETFs inexistentes al catálogo. La confluencia
+mínima, el límite de 5/10/todos y el orden por confluencia o PoP Monte Carlo se
+aplican realmente al generar la lista y se guardan junto con los parámetros.
+Las PoP ausentes quedan al final, sin sustituirlas por probabilidades BSM.
+
+El institucional prioriza `institutionalFlow` observado, normalizado, reciente y
+con fuente; después usa la comparación automática SEC 13F. La interfaz no ofrece
+capturas manuales Finviz. No deduce flujo del volumen
+ni del open interest. El [conector 13F](../integraciones/sec-13f.md) usa una muestra
+identificada de Geode y State Street, sin presentarla como propiedad total o
+flujo intradía. Su dirección participa en el escenario y su puntuación en la
+media ponderada, respetando el peso del usuario.
 
 Verificación: `npm test`, `npm run typecheck`, `npm run build` y
 `node scripts/scanner-browser-scenario.mjs` con la interfaz local iniciada.
-El navegador usa fixtures aisladas, comprueba pesos, captura Finviz, sentimiento, gráfica,
+El navegador usa fixtures aisladas, comprueba pesos, ausencia de captura Finviz, sentimiento, gráfica,
 datos faltantes, guardado de listas y ancho móvil; no realiza escrituras remotas.
 Las capturas quedan en `outputs/scanner-desktop.png` y `outputs/scanner-mobile.png`.
 
@@ -54,14 +70,76 @@ La casilla «¿Qué falta?» muestra el diagnóstico concreto, incluida antigüe
 cotizaciones, IV, restricciones de capital y contratos. El acceso al escenario
 estimado es explícito y conserva los supuestos; no relaja la validez del modo
 observado. Fuera de sesión pueden existir contratos sin ninguna cotización reciente.
+La reconstrucción acotada reserva candidatas de calls largas ITM con delta
+compatible para PMCC, además de calls cercanas al vencimiento corto. Recalcula
+las griegas del escenario reconstruido. No elimina restricciones de capital,
+spread, sincronización ni multiplicador. La selección sigue sin ser exhaustiva.
 
-El panel Finviz permite valores de la ficha gratuita, tablas copiadas y CSV ya
-disponibles. Se conservan como datos manuales declarados, con la fecha de captura
-y vigencia máxima de siete días; no se aplican a demostración ni se retrofechan
-para backtests. «Inst Trans» puede alimentar el core institucional como proxy
-de variación de participación, separado del flujo neto intradía. «Inst Own» solo
-no activa ese proxy. Margen, ROE, solvencia y liquidez complementan el fundamental
-sin sustituir los hechos SEC. Ver `docs/integraciones/sec-y-finviz.md`.
+Se retiraron el formulario, el pegado de tablas y la importación CSV manual de
+Finviz. Las políticas creadas por la interfaz usan Finnhub y SEC sin aplicar
+capturas guardadas. El lector de formatos antiguos conserva compatibilidad de
+almacenamiento; eso no habilita nuevos envíos manuales ni retrofecha sus métricas.
+
+### Recomendador, rentabilidad y reproducción histórica
+
+El recomendador propone contratos concretos y sus combinaciones para Wheel,
+PMCC, Backspread y Gamma. No incluye un apartado CC/CSP. Cada combinación conserva
+su geometría, cantidades y ratios: put inicial Wheel, diagonal PMCC, calls −1/+2
+Backspread o call/put de igual strike y vencimiento para la base de Gamma.
+`contract-recommendations.ts` compara hasta 24 estructuras distintas mediante
+40 búsquedas sobre un máximo de 128 contratos elegibles. Al excluir piernas de
+una selección, encuentra alternativas usando el selector compartido, con sus
+reglas de capital, vencimiento, delta y calidad. No enumera el producto cartesiano
+de una cadena completa ni afirma una optimización exhaustiva.
+
+Cada estructura tiene su propia evaluación de cores y PoP Monte Carlo. Se ordena
+por confluencia, retorno comparable o capital, y se muestran hasta 3/5/10 propuestas.
+La confluencia mínima proviene de la configuración del escáner. Las primas
+reconstruidas siguen marcadas como estimadas y no habilitan ejecución. El worker
+se cancela al cambiar empresa, estrategia o parámetros; una respuesta anterior
+no puede reemplazar las combinaciones de la selección actual.
+
+`strategy-outlook.ts` comparte el pronóstico entre el resumen del recomendador y
+la evaluación detallada. Selecciona 5, 20 o 60 sesiones sin superar el plazo de
+la opción corta; convierte a días naturales usando 365/252. Transforma cada
+retorno comparable ya resuelto en el valor de la posición, con IV constante,
+comisiones de entrada/salida y financiación del débito. PMCC retiene el valor
+temporal de la LEAPS. Se informa media ponderada, retorno sobre capital requerido
+y P10/P90 descriptivos. La validación cronológica sigue correspondiendo al precio
+del subyacente: no acredita un backtest de opciones. Gamma conserva el análisis
+de trayectoria y no recibe un pronóstico de scalping desde cierres estáticos.
+
+`historical-exercise.ts` y el panel de reproducción permiten elegir un cierre
+pasado, mostrando únicamente el estado calculable al corte. Su disponibilidad
+conservadora es las 06:00 UTC del día siguiente. Los hechos empresariales y macro
+se consultan con ese corte. La evolución posterior se revela mediante una acción
+separada; nunca entra en las señales ni en la HV inicial. El ejercicio utiliza
+términos definidos por el usuario, multiplicador supuesto de 100 y primas BSM,
+sin afirmar contratos listados ni fills históricos. Los datos macro ausentes
+requieren supuestos explícitos. Se informa si falta evolución hasta el horizonte.
+
+La comparación de cuatro estrategias del screener se calcula al abrirla. Los
+espacios grandes se cargan mediante importaciones dinámicas y los selectores
+reutilizan términos, vencimiento y spread durante cada ordenamiento. Los
+pronósticos comparten resultados por snapshot y horizonte, sin mezclar cortes.
+
+### Propuesta de API de IA (pendiente de implementación)
+
+Integrar la explicación y sugerencia de alternativas dentro del recomendador,
+con el detalle y la evidencia en la evaluación detallada. El modelo de lenguaje
+recibiría un resumen acotado de los siete cores, estructuras, costes, riesgos,
+preferencias, cobertura y corte. Los motores locales seguirían calculando precios,
+rentabilidad y restricciones. La respuesta debería incluir estrategia, motivos,
+alternativas, datos faltantes y acción «esperar/explorar/revisar», con referencias
+a entradas del resumen; no podría inventar cotizaciones ni enviar órdenes.
+
+La opción inicial propuesta es Responses API con Structured Outputs y validación
+Zod en el servidor. Mantener la clave fuera del cliente, límites de consumo,
+timeout, caché por usuario/snapshot/preferencias/versión y regreso al análisis local
+ante fallos. Evaluar los modelos con casos financieros reproducibles antes de
+elegir por calidad, latencia y coste; no se activa una API de pago en esta fase.
+Referencias: [inicio oficial](https://developers.openai.com/api/docs/quickstart),
+[salida estructurada](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 El histórico de investigación carga hasta 400 días de preparación anteriores al
 corte si la ventana visible es corta. La gráfica y su CSV conservan el rango
@@ -74,7 +152,7 @@ presentar estos últimos como rebotes confirmados.
 ## Cuenta, conexiones y modos de trabajo
 
 La navegación incorpora Mi cuenta, Cadena de opciones y Conexiones; los modos
-incluyen Mesa de órdenes, Screener, Evaluación detallada, Recomendador CC/CSP y
+incluyen Mesa de órdenes, Screener, Evaluación detallada, Recomendador de contratos y
 Simulación histórica. Se reutilizan las revisiones y confirmaciones manuales
 de Alpaca Paper y Webull Sandbox. El recomendador filtra el bid neto de comisiones,
 el capital para CSP y las acciones declaradas para CC; la cobertura real se

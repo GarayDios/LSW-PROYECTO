@@ -3,14 +3,18 @@ import { z } from 'zod';
 import { BrokerError } from '../../src/api/brokers/alpaca/client.ts';
 import { openingLegs, parseF5Request, requiredOptionsLevel } from '../../src/features/f5/validation.ts';
 import type { AlpacaOptionsClient } from '../../src/api/brokers/alpaca/options.ts';
-import type { F5Account, F5AutomationPlan, F5BrokerOrder, F5Contract, F5Control, F5ControlEvent, F5Leg, F5Operation, F5OrderInput, F5Position, F5Request, F5Status } from '../../src/features/f5/types.ts';
+import type { F5Account, F5AutomationPlan, F5BrokerOrder, F5Contract, F5Control, F5ControlEvent, F5Leg, F5Operation, F5OrderInput, F5Position, F5Request, F5Status, F5Feed } from '../../src/features/f5/types.ts';
 import type { F5Store } from './f5-store.ts';
 import { executed, f5Residual, parsePlan, riskSettingsSchema } from './f5-model.ts';
 import { enforceF5Risk, measureF5Risk } from '../../src/cores/06-gestion-de-riesgos/f5-risk.ts';
 import { buildF5Report } from './f5-report.ts';
 
-export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contracts' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'|'fillActivities'|'feeActivities'|'optionActivities'>>;
-type Options = { store: F5Store; broker: F5Broker | null; ownerId: string; enabled: boolean; automationEnabled?: boolean; feed?: 'indicative' | 'opra'; now?: () => number; reservedShares?: (underlying: string) => number; onEvent?: (event: F5ControlEvent) => void };
+export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'|'fillActivities'|'feeActivities'|'optionActivities'>> & {
+  contracts(underlying:string,expiry?:string):Promise<{contracts:F5Contract[];complete:boolean;feed:F5Feed}>;
+  preview?(input:F5OrderInput):Promise<void>;
+  activitiesComplete?():boolean;
+};
+type Options = { store: F5Store; broker: F5Broker | null; ownerId: string; enabled: boolean; automationEnabled?: boolean; feed?: F5Feed; provider?:'alpaca'|'webull'; now?: () => number; reservedShares?: (underlying: string) => number; onEvent?: (event: F5ControlEvent) => void };
 type Result = { status: number; value: unknown };
 const unresolved = (operation: F5Operation) => ['reserved', 'submitted', 'partial', 'ambiguous'].includes(operation.state);
 const identifier = z.string().uuid();
@@ -23,14 +27,14 @@ const precision = (value: number) => Math.round(value * 100) / 100;
 const cash = (value: number) => `$${value.toFixed(2)}`;
 function flatten(orders: F5BrokerOrder[]): F5BrokerOrder[] { return orders.flatMap(order => [order, ...flatten(order.legs ?? [])]); }
 function accountReady(account: F5Account, level: number) {
-  if (account.blocked || account.status !== 'ACTIVE') fail('f5_account_blocked', 'La cuenta Paper está bloqueada o no está activa.');
-  if (account.optionsLevel < level) fail('f5_options_permission', `La operación necesita nivel ${level} de opciones habilitado en Alpaca Paper.`);
+  if (account.blocked || account.status !== 'ACTIVE' && !(account.status==='OPENAPI_VERIFIED'&&account.optionsPermissionSource==='preview')) fail('f5_account_blocked', 'La cuenta de pruebas está bloqueada o no está verificada.');
+  if (account.optionsPermissionSource!=='preview' && (account.optionsLevel===null||account.optionsLevel < level)) fail('f5_options_permission', `La operación necesita nivel ${level} de opciones habilitado en la cuenta.`);
   if (![account.cash, account.buyingPower, account.optionsBuyingPower, account.equity].every(Number.isFinite)) fail('f5_account_uncertain', 'No se pudo verificar el capital de la cuenta Paper.');
 }
-function quoteReady(contract: F5Contract, time: number, feed: 'indicative' | 'opra') {
+function quoteReady(contract: F5Contract, time: number, feed: F5Feed) {
   const quoteTime = contract.quoteTime ? Date.parse(contract.quoteTime) : NaN;
   // Indicative is delayed and altered. Its provenance is shown in every review.
-  const maxAge = feed === 'indicative' ? 20 * 60000 : 60000;
+  const maxAge = feed === 'opra' ? 60000 : 20 * 60000;
   if (contract.bid === null || contract.ask === null || !Number.isFinite(contract.bid) || !Number.isFinite(contract.ask) || contract.bid < 0 || contract.ask <= 0 || contract.bid > contract.ask || !Number.isFinite(quoteTime) || time - quoteTime > maxAge || quoteTime > time + 5000) {
     fail('f5_quote_unavailable', `No hay una cotización válida y reciente para ${contract.symbol}. Actualiza los contratos.`);
   }
@@ -47,7 +51,8 @@ function orderInput(legs: F5Leg[], quantity: number, limitPrice: number, clientI
 /** A submitted request is durably consumed before the only permitted POST. */
 export function createF5Service(options: Options) {
   const now = options.now ?? Date.now, feed = options.feed ?? 'indicative', store = options.store;
-  const broker = () => options.broker ?? fail('f5_not_configured', 'Configura Alpaca Paper en el servicio para consultar y operar F5.', 503);
+  const provider=options.provider??'alpaca',label=provider==='webull'?'Webull Sandbox':'Alpaca Paper';
+  const broker = () => options.broker ?? fail('f5_not_configured', `Configura ${label} en el servicio para consultar y operar F5.`, 503);
   const get = (id: string) => store.get(options.ownerId, id) ?? fail('f5_operation_not_found', 'La operación F5 no existe en esta cuenta.', 404);
   function event(status: F5ControlEvent['status'], message: string, planId?: string, operationId?: string, key?: string) {
     const value: F5ControlEvent = { id: randomUUID(), time: new Date(now()).toISOString(), status, message, ...(planId ? { planId } : {}), ...(operationId ? { operationId } : {}) };
@@ -90,7 +95,7 @@ export function createF5Service(options: Options) {
     else if (order.status === 'expired' || order.status === 'done_for_day') state = 'expired';
     else if (['new', 'accepted', 'pending_new', 'accepted_for_bidding', 'pending_cancel', 'held', 'stopped', 'suspended', 'calculated'].includes(order.status)) state = filled > 0 ? 'partial' : 'submitted';
     else state = 'ambiguous';
-    return { ...operation, state, brokerOrder: order, message: state === 'ambiguous' ? 'Estado del bróker desconocido. Revisa la cuenta antes de continuar.' : `Alpaca Paper: ${order.status}. Ejecutadas ${filled} de ${operation.quantity} unidades.` };
+    return { ...operation, state, brokerOrder: order, message: state === 'ambiguous' ? 'Estado del bróker desconocido. Revisa la cuenta antes de continuar.' : `${label}: ${order.status}. Ejecutadas ${filled} de ${operation.quantity} unidades.` };
   }
 
   async function reconcileOne(operation: F5Operation): Promise<F5Operation> {
@@ -121,16 +126,18 @@ export function createF5Service(options: Options) {
   }
 
   async function prepare(request: F5Request, existing?: F5Operation): Promise<F5Operation> {
+    if(provider==='webull'&&request.action==='roll'&&!request.step)request={...request,step:'close-short'};
     const api = broker(), time = now();
     const [account, marketOpen, positions, openOrders, activities] = await Promise.all([api.account(), api.clock(), api.positions(), api.orders(), api.activities()]);
+    if(account.optionsPermissionSource==='preview'&&!api.preview)fail('f5_options_permission','El adaptador no dispone de una revisión verificable de permisos.');
     if (flatten(openOrders).length) fail('f5_pending_broker_orders', 'Hay órdenes pendientes en la cuenta Paper. Concílialas o cancélalas antes de preparar otra operación F5.');
     const others = store.list(options.ownerId).filter(operation => operation.id !== existing?.id && unresolved(operation));
     if (others.length) fail('f5_pending_operations', 'Hay operaciones F5 pendientes o sin confirmar. Actualiza su estado antes de enviar otra.');
     let strategy: F5Operation['strategy'], underlying: string, legs: F5Leg[], quantity: number, parentId: string | undefined;
     let contracts: F5Contract[] = [], reserve = 0;
-    const warnings = ['Las órdenes se envían exclusivamente a Alpaca Paper con saldo de práctica.',
-      feed === 'indicative' ? 'Feed indicative: cotizaciones modificadas y retrasadas; no son precios OPRA ejecutables. El límite lo confirmas tú.' : 'Cotización OPRA observada; un precio mostrado no garantiza ejecución.',
-      'Alpaca decide la aceptación, ejecución, vencimiento, ejercicio y asignación; el terminal no los inventa.'];
+    const warnings = [`Las órdenes se envían exclusivamente a ${label} con saldo de práctica.`,
+      feed === 'webull-sandbox' ? 'Webull Sandbox: precios retrasados de pruebas; la fecha del contrato y la validación del proveedor se conservan.' : feed === 'indicative' ? 'Feed indicative: cotizaciones modificadas y retrasadas; no son precios OPRA ejecutables. El límite lo confirmas tú.' : 'Cotización OPRA observada; un precio mostrado no garantiza ejecución.',
+      `${label} decide la aceptación, ejecución, vencimiento, ejercicio y asignación; el terminal no los inventa.`];
     if (request.action === 'open') {
       strategy = request.strategy; underlying = request.underlying; quantity = request.quantity;
       contracts = await Promise.all(request.contracts.map(symbol => api.contract(symbol)));
@@ -139,7 +146,7 @@ export function createF5Service(options: Options) {
       contracts.forEach(contract => quoteReady(contract, time, feed));
       for (const position of positions.filter(position => position.assetClass === 'us_option' && position.quantity !== 0)) {
         const held = await api.contract(position.symbol);
-        if (held.underlying === underlying) fail('f5_existing_option_position', 'Ya hay contratos abiertos de esta empresa en Alpaca, incluidos posibles restos parciales. Resuélvelos antes de abrir otro ciclo F5.');
+        if (held.underlying === underlying) fail('f5_existing_option_position', 'Ya hay contratos abiertos de esta empresa en el bróker, incluidos posibles restos parciales. Resuélvelos antes de abrir otro ciclo F5.');
       }
       const debit = request.limitPrice * quantity * 100;
       if (strategy === 'wheel') {
@@ -179,7 +186,7 @@ export function createF5Service(options: Options) {
       }
     } else {
       const parent = get(request.operationId);
-      if (parent.action !== 'open' || !parent.brokerOrder || executed(parent) <= 0 || !Number.isFinite(executed(parent))) fail('f5_open_not_filled', 'Primero debe existir una ejecución confirmada de la apertura en Alpaca.');
+      if (parent.action !== 'open' || !parent.brokerOrder || executed(parent) <= 0 || !Number.isFinite(executed(parent))) fail('f5_open_not_filled', 'Primero debe existir una ejecución confirmada de la apertura en el bróker.');
       const residual = f5Residual(parent, store.list(options.ownerId), positions, activities, time);
       strategy = parent.strategy; underlying = parent.underlying; parentId = parent.id; quantity = residual.quantity;
       accountReady(account, 1);
@@ -202,17 +209,24 @@ export function createF5Service(options: Options) {
       } else if (request.action === 'roll') {
         if (!residual.lifecycle.canRoll || strategy !== 'pmcc') fail('f5_roll_unavailable', 'El ciclo PMCC necesita una call larga y una corta confirmadas para rolar.');
         accountReady(account, 3);
-        const shortSymbol = residual.lifecycle.shortContract!;
+        if(provider!=='webull'&&request.step)fail('f5_roll_invalid','Las etapas de renovación corresponden a Webull; Alpaca usa una sola revisión combinada.');
+        const staged=provider==='webull',openingShort=staged&&request.step==='open-short';
+        if(staged&&openingShort!==(residual.lifecycle.rollPhase==='open-short'))fail('f5_roll_invalid','Primero debe confirmarse el cierre de la call corta anterior. Después revisa y confirma la nueva apertura.');
+        const closed=store.list(options.ownerId).find(op=>op.parentId===parent.id&&op.action==='roll'&&op.request.action==='roll'&&op.request.step==='close-short'&&op.state==='filled');
+        const shortSymbol = residual.lifecycle.shortContract??closed?.legs[0]?.symbol;
+        if(!shortSymbol)fail('f5_roll_invalid','No se confirmó la call corta anterior.');
         const longSymbol = [...residual.vector].find(([, count]) => count > 0)![0];
-        const [long, old, replacement] = await Promise.all([api.contract(longSymbol), api.contract(shortSymbol), api.contract(request.newShortContract)]);
-        for (const item of [long, old, replacement]) quoteReady(item, time, feed);
-        if (replacement.symbol === old.symbol || replacement.underlying !== underlying || replacement.type !== 'call' || replacement.style !== 'american' || replacement.size !== 100 || !replacement.tradable || replacement.expiry <= old.expiry || replacement.expiry >= long.expiry || replacement.strike < long.strike || (positions.find(position => position.symbol === replacement.symbol)?.quantity ?? 0) !== 0) fail('f5_roll_invalid', 'La nueva call corta debe ser distinta, americana, del mismo subyacente, posterior a la corta y anterior a la larga, con strike cubierto.');
-        if (residual.vector.get(longSymbol) !== -residual.vector.get(shortSymbol)!) fail('f5_roll_invalid', 'El residuo PMCC no conserva una proporción 1:1 verificable.');
-        quantity = Math.abs(residual.vector.get(shortSymbol)!);
-        legs = [{ symbol: shortSymbol, side: 'buy', ratio: 1, intent: 'buy_to_close' }, { symbol: replacement.symbol, side: 'sell', ratio: 1, intent: 'sell_to_open' }];
-        contracts = [old, replacement];
-        reserve = Math.max(0, request.limitPrice * quantity * 100) + replacement.strike * quantity * 100;
-        warnings.push('El roll viaja en una sola orden combinada. Alpaca puede rechazar la cobertura externa; nunca se enviarán las piernas por separado.');
+        const [long, old, replacement] = await Promise.all([api.contract(longSymbol), openingShort?Promise.resolve(null):api.contract(shortSymbol), api.contract(request.newShortContract)]);
+        for (const item of [long, ...(old?[old]:[]), replacement]) quoteReady(item, time, feed);
+        const encodedDate=shortSymbol.slice(-15,-9),oldExpiry=old?.expiry??`20${encodedDate.slice(0,2)}-${encodedDate.slice(2,4)}-${encodedDate.slice(4,6)}`;
+        if (replacement.symbol === shortSymbol || replacement.underlying !== underlying || replacement.type !== 'call' || replacement.style !== 'american' || replacement.size !== 100 || !replacement.tradable || replacement.expiry <= oldExpiry || replacement.expiry >= long.expiry || replacement.strike < long.strike || (positions.find(position => position.symbol === replacement.symbol)?.quantity ?? 0) !== 0) fail('f5_roll_invalid', 'La nueva call corta debe ser distinta, americana, del mismo subyacente, posterior a la corta y anterior a la larga, con strike cubierto.');
+        if (!openingShort&&residual.vector.get(longSymbol) !== -residual.vector.get(shortSymbol)!) fail('f5_roll_invalid', 'El residuo PMCC no conserva una proporción 1:1 verificable.');
+        quantity = Math.abs(residual.vector.get(openingShort?longSymbol:shortSymbol)!);
+        legs = staged?openingShort?[{symbol:replacement.symbol,side:'sell',ratio:1,intent:'sell_to_open'}]:[{symbol:shortSymbol,side:'buy',ratio:1,intent:'buy_to_close'}]:[{ symbol: shortSymbol, side: 'buy', ratio: 1, intent: 'buy_to_close' }, { symbol: replacement.symbol, side: 'sell', ratio: 1, intent: 'sell_to_open' }];
+        contracts = staged?[openingShort?replacement:old!]:[old!, replacement];
+        if(staged&&request.limitPrice<=0)fail('f5_invalid_limit','Cada etapa Webull usa una prima positiva; el lado distingue compra y venta.');
+        reserve = staged?(openingShort?replacement.strike:request.limitPrice)*quantity*100:Math.max(0, request.limitPrice * quantity * 100) + replacement.strike * quantity * 100;
+        warnings.push(staged?'Renovación Webull en dos etapas manuales: primero cerrar la call corta, conservar la larga y esperar la ejecución; después revisar y confirmar la nueva venta cubierta por la larga. No se envía la segunda etapa automáticamente.':'El roll viaja en una sola orden combinada. El bróker puede rechazar la cobertura externa; nunca se enviarán las piernas por separado.');
       } else {
         if (strategy !== 'gamma') fail('f5_hedge_strategy', 'Solo un straddle Gamma confirmado admite esta cobertura.');
         if (!residual.lifecycle.canHedge) fail('f5_position_missing', residual.lifecycle.reason ?? 'No existe una cobertura o posición Gamma verificable.');
@@ -228,7 +242,7 @@ export function createF5Service(options: Options) {
           quoteReady(contract, time, feed);
           if (contract.delta === null || !Number.isFinite(contract.delta) || contract.expiry <= realDate(time)) fail('f5_delta_unavailable', 'No hay delta observada vigente para revisar la cobertura Gamma.');
           const held = positions.find(position => position.symbol === contract.symbol && position.assetClass === 'us_option');
-          if (!held || held.quantity !== residual.vector.get(contract.symbol)) fail('f5_position_missing', 'El straddle ya no coincide exactamente con este ciclo en Alpaca; revisa movimientos, vencimientos o asignaciones.');
+          if (!held || held.quantity !== residual.vector.get(contract.symbol)) fail('f5_position_missing', 'El straddle ya no coincide exactamente con este ciclo en el bróker; revisa movimientos, vencimientos o asignaciones.');
           netDelta += contract.delta * held.quantity * 100;
         }
         // Unwinding attributed shares is always available; opening/increasing a
@@ -258,16 +272,17 @@ export function createF5Service(options: Options) {
     const deltaChange = request.action === 'hedge' ? quantity * (request.side === 'buy' ? 1 : -1) : contracts.every(contract => contract.delta !== null) ? legs.reduce((total, leg, index) => total + (contracts[index]?.delta ?? 0) * leg.ratio * quantity * 100 * (leg.side === 'buy' ? 1 : -1), 0) : null;
     const allocation = reserve + (parentId ? get(parentId).reservedCapitalUsd + store.list(options.ownerId).filter(op => op.parentId === parentId && op.action === 'hedge').reduce((total, op) => total + executed(op) * op.limitPrice * (op.input.side === 'buy' ? 1 : -1), 0) : 0);
     enforceF5Risk(store.settings(options.ownerId), risk, operation, deltaChange, allocation);
+    await api.preview?.(operation.input);
     return operation;
   }
 
   async function status(): Promise<F5Status> {
-    if (!options.broker) return { configured: false, enabled: options.enabled, marketOpen: false, mode: 'paper', feed, account: null, operations: store.list(options.ownerId), positions: [], activities: [], message: 'Configura las claves de Alpaca Paper en el servicio.' };
+    if (!options.broker) return { configured: false, enabled: options.enabled, marketOpen: false, mode: provider==='webull'?'sandbox':'paper', provider,feed, account: null, operations: store.list(options.ownerId), positions: [], activities: [], message: `Configura las claves de ${label} en el servicio.` };
     await reconcile();
     const [account, marketOpen, positions, activities] = await Promise.all([broker().account(), broker().clock(), broker().positions(), broker().activities()]);
     await measure(account, positions);
     const operations = store.list(options.ownerId);
-    return { configured: true, enabled: options.enabled, marketOpen, mode: 'paper', feed, account, operations: operations.map(operation => operation.action === 'open' ? { ...operation, lifecycle: f5Residual(operation, operations, positions, activities, now()).lifecycle } : operation), positions, activities };
+    return { configured: true, enabled: options.enabled, marketOpen, mode: provider==='webull'?'sandbox':'paper', provider,feed, account, activitiesComplete:broker().activitiesComplete?.()??true, operations: operations.map(operation => operation.action === 'open' ? { ...operation, lifecycle: f5Residual(operation, operations, positions, activities, now()).lifecycle } : operation), positions, activities,...(provider==='webull'?{message:'Permisos validados por revisión de Webull; no se presume un nivel de opciones. Horario regular calculado con calendario NYSE; cotizaciones recientes y revisión del proveedor obligatorias para enviar.'}:{}) };
   }
 
   async function handle(method: string, path: string, ownerId: string, body?: unknown): Promise<Result> {
@@ -289,7 +304,7 @@ export function createF5Service(options: Options) {
         if(url.pathname==='/f5/status')return {status:200,value:state};
         const batches=await Promise.allSettled([broker().fillActivities?.(),broker().feeActivities?.(),broker().optionActivities?.()]);
         const [fills,fees,activities]=batches.map(result=>result.status==='fulfilled'?result.value:undefined);
-        return {status:200,value:buildF5Report({operations:state.operations,positions:state.positions,fills,fees,activities,now})};
+        return {status:200,value:buildF5Report({operations:state.operations,positions:state.positions,fills,fees,activities,now,provider:label})};
       }
       if (url.pathname === '/f5/preview') {
         await reconcile();
@@ -304,7 +319,7 @@ export function createF5Service(options: Options) {
           operation = await reconcileOne(operation);
           return { status: operation.state === 'ambiguous' ? 409 : 200, value: { operation } };
         }
-        if (!options.enabled) fail('f5_disabled', 'El envío de opciones F5 está desactivado en el servicio. Habilita ALPACA_F5_ENABLED después de revisar la configuración.');
+        if (!options.enabled) fail('f5_disabled', `El envío de opciones F5 está desactivado en el servicio. Habilita ${provider==='webull'?'WEBULL_MANUAL_ENABLED':'ALPACA_F5_ENABLED'} después de revisar la configuración.`);
         if (now() >= Date.parse(operation.expiresAt)) {
           store.update(ownerId, { ...operation, state: 'expired', message: 'La revisión venció antes del envío.' });
           fail('f5_preview_expired', 'La revisión venció. Actualiza contratos y revisa nuevamente.');
@@ -347,7 +362,7 @@ export function createF5Service(options: Options) {
       let operation = await reconcileOne(get(parsed.data.operationId));
       if (!unresolved(operation) || !operation.brokerOrder) fail('f5_cannot_cancel', 'No hay una orden pendiente confirmada del bróker para cancelar. Actualiza el estado.');
       await broker().cancel(operation.brokerOrder.id);
-      operation = { ...operation, message: 'Cancelación solicitada; sigue pendiente hasta que Alpaca confirme el estado. Puede coincidir con una ejecución.' };
+      operation = { ...operation, message: 'Cancelación solicitada; sigue pendiente hasta que el bróker confirme el estado. Puede coincidir con una ejecución.' };
       store.update(ownerId, operation);
       operation = await reconcileOne(operation);
       return { status: 200, value: { operation } };

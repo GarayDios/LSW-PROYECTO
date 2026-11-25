@@ -19,6 +19,7 @@ export type MarketForecast = {
   lastClose: number | null; lastCloseAt: string | null;
   expectedReturn: number | null; lowerReturn: number | null; upperReturn: number | null;
   risingComparableFraction: number | null; neighbors: number; trainingExamples: number;
+  comparables?: { return: number; weight: number; outcomeAt: string }[];
   validation: {
     periods: ForecastValidationPeriod[]; modelMae: number | null;
     noChangeMae: number | null; historicalMeanMae: number | null;
@@ -78,6 +79,7 @@ function predict(examples: readonly Example[], target: number[], decision: numbe
     count: selected.length, trainingCount: training.length,
     latestOutcome: Math.max(...selected.map(candidate => candidate.row.end)),
     baseline: mean(baseline.map(row => row.outcome)),
+    comparables: weighted.map(row=>({return:row.outcome,weight:row.weight/totalWeight,end:row.end})),
   };
 }
 
@@ -143,6 +145,7 @@ export function forecastMarket(input: {
       : `Modelo experimental: requiere ${MIN_VALIDATION_PERIODS} periodos de prueba y mejorar al menos 2% el error de ambas referencias para proponer una estrategia.`,
     expectedReturn: current.expected, lowerReturn: current.lower, upperReturn: current.upper,
     risingComparableFraction: current.rising, neighbors: current.count, trainingExamples: current.trainingCount,
+    comparables:current.comparables.map(row=>({return:row.return,weight:row.weight,outcomeAt:timestamp(bars[row.end])})),
     validation: { periods, modelMae, noChangeMae, historicalMeanMae, passed },
   };
 }

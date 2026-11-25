@@ -16,7 +16,7 @@ const open = z.object({ action: z.literal('open'), strategy: z.enum(['wheel', 'p
 const requestSchema = z.discriminatedUnion('action', [open,
   z.object({ action: z.literal('close'), operationId, limitPrice: money, maxCapitalUsd: capital }).strict(),
   z.object({ action: z.literal('hedge'), operationId, side: z.enum(['buy', 'sell']), quantity: z.number().int().min(1).max(1_000_000), limitPrice: money.refine(value => value > 0), maxCapitalUsd: capital }).strict(),
-  z.object({ action: z.literal('roll'), operationId, newShortContract: z.string().regex(f5OptionSymbol), limitPrice: money, maxCapitalUsd: capital }).strict(),
+  z.object({ action: z.literal('roll'), operationId, newShortContract: z.string().regex(f5OptionSymbol), limitPrice: money, maxCapitalUsd: capital,step:z.enum(['close-short','open-short']).optional() }).strict(),
 ]);
 const invalid = (message: string) => new BrokerError('f5_request_invalid', 400, message, false);
 
