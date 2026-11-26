@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createF5Handlers } from '../../src/api/f5/handlers.ts';
+import { f5RiskMessages } from '../../src/features/f5/risk-messages.ts';
 
 const environment = { ALPACA_API_KEY: 'test-key', ALPACA_SECRET_KEY: 'test-secret', BROKER_OWNER_USER_ID: 'owner',
   TRADING_RUNNER_URL: 'http://127.0.0.1:8790', TRADING_RUNNER_TOKEN: 'test-internal-token-at-least-32-characters', ALPACA_F5_ENABLED: 'true' };
@@ -87,4 +88,60 @@ test('F5 status combines both enable switches and preserves specific safe valida
     assert.equal(body.error.code, code);
     assert.doesNotMatch(body.error.message, /private service diagnostic/);
   }
+});
+
+test('F5 preview preserves each public risk reason for Alpaca and Webull', async () => {
+  for (const provider of ['alpaca', 'webull'] as const) {
+    for (const message of Object.values(f5RiskMessages)) {
+      const api = createF5Handlers({ provider, environment: () => environment, owner: async () => ({ userId: 'owner' }),
+        fetcher: async () => Response.json({ error: { code: 'f5_risk_blocked', message } }, { status: 409 }) });
+      const result = await api.post(request({ action: 'preview', request: {} }));
+      const body = await result.json() as { error: { code: string; message: string } };
+      assert.equal(result.status, 409);
+      assert.equal(body.error.code, 'f5_risk_blocked');
+      assert(body.error.message.startsWith(message));
+      assert.doesNotMatch(body.error.message, /F5 rechazó la solicitud/);
+      if (message === f5RiskMessages.uncertain) assert.match(body.error.message, /delta vigente para cada contrato sugerido/);
+    }
+  }
+});
+
+test('F5 does not expose arbitrary diagnostics even for known risk codes or prototype names', async () => {
+  for (const code of ['f5_risk_blocked', 'toString', '__proto__', 'constructor']) {
+    const api = createF5Handlers({ environment: () => environment, owner: async () => ({ userId: 'owner' }),
+      fetcher: async () => Response.json({ error: { code, message: 'private password secret token' } }, { status: 409 }) });
+    const result = await api.post(request({ action: 'preview', request: {} }));
+    assert.equal(result.status, 409);
+    const body = await result.json() as { error: { code: string; message: string } };
+    assert.equal(body.error.code, code === 'f5_risk_blocked' ? code : 'f5_request_rejected');
+    assert.doesNotMatch(body.error.message, /private password|secret token/);
+  }
+});
+
+test('F5 translates runner string errors and incomplete broker evidence during preview', async () => {
+  for (const code of ['account_busy', 'owner_not_allowed', 'unauthorized', 'runner_unavailable', 'broker_exposure_uncertain', 'broker_activities_incomplete', 'f5_roll_invalid', 'f5_roll_unavailable']) {
+    const api = createF5Handlers({ environment: () => environment, owner: async () => ({ userId: 'owner' }),
+      fetcher: async () => Response.json({ error: code.startsWith('broker_') || code.startsWith('f5_') ? { code, message: 'private diagnostic' } : code }, { status: 409 }) });
+    const result = await api.post(request({ action: 'preview', request: {} }));
+    const body = await result.json() as { error: { code: string; message: string } };
+    assert.equal(body.error.code, code);
+    assert.doesNotMatch(body.error.message, /F5 rechazó la solicitud|private diagnostic/);
+  }
+});
+
+test('Paper risk reset requires explicit confirmation and same-origin ownership before forwarding', async () => {
+  const forwarded: Record<string, unknown>[] = [];
+  const body = { action: 'reset-daily-risk', confirmed: true, reference: { date: '2026-11-25', baselineEquity: 100000, maxDailyLossUsd: 1000, resetId: null } };
+  const options = { environment: () => environment, owner: async () => ({ userId: 'owner' }), fetcher: async (_url: string | URL | Request, init?: RequestInit) => {
+    forwarded.push(JSON.parse(String(init?.body))); return Response.json({ risk: { dailyLossBlocked: false } });
+  } };
+  const api = createF5Handlers(options);
+  assert.equal((await api.post(request({ ...body, confirmed: false }))).status, 400);
+  assert.equal((await api.post(request({ ...body, ownerId: 'attacker' }))).status, 400);
+  assert.equal((await api.post(request(body, 'https://other.test'))).status, 403);
+  assert.equal((await createF5Handlers({ ...options, owner: async () => ({ userId: 'other' }) }).post(request(body))).status, 403);
+  assert.equal((await createF5Handlers({ ...options, provider: 'webull' }).post(request(body))).status, 409);
+  assert.equal(forwarded.length, 0);
+  assert.equal((await api.post(request(body))).status, 200);
+  assert.deepEqual(forwarded, [{ confirmed: true, reference: body.reference, ownerId: 'owner' }]);
 });

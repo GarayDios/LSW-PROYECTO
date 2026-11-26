@@ -22,6 +22,11 @@ export function installF5QA(provider='alpaca') {
   const qa=window[provider==='webull'?'__webullF5QA':'__f5QA'] = {
     inspect: read,
     statusFailure: null,
+    blockDailyRisk: () => {
+      const data = read(); data.riskResets = 0;
+      data.risk = { date: new Date().toISOString().slice(0, 10), baselineEquity: 100000, equity: 98765.43, dailyPnlUsd: -1234.57, dailyLossBlocked: true, grossExposureUsd: 0, premiumExposureUsd: 0, netDelta: 0, uncertain: false, blockedReasons: ['Límite de pérdida diaria alcanzado.'], updatedAt: now() };
+      save(data);
+    },
     complete: () => {
       const data = read();
       data.operations.filter(operation => ['submitted', 'partial', 'ambiguous'].includes(operation.state)).forEach(operation => {
@@ -49,9 +54,17 @@ export function installF5QA(provider='alpaca') {
       configured: true, enabled: true, marketOpen: true, mode: provider==='webull'?'sandbox':'paper', feed,
       account: { status: 'ACTIVE', cash: 80000, buyingPower: 80000, optionsBuyingPower: 80000, equity: 98765.43, optionsLevel: provider==='webull'?null:3,...(provider==='webull'?{optionsPermissionSource:'preview'}:{}),blocked: false },
       operations: data.operations, positions: data.positions,
+      risk: data.risk, riskSettings: { paused: false, maxDailyLossUsd: 1000, maxGrossExposureUsd: 1000000, maxPremiumExposureUsd: 100000, maxAbsDelta: 10000, maxCycleCapitalUsd: 100000 },
       activities: [{ id: 'qa-expiry', type: 'OPEXP', symbol: 'QA-EXAMPLE', date: '2026-11-13', quantity: '1', description: 'Actividad de prueba del navegador.' }],
     });
     const body = JSON.parse(init.body);
+    if (body.action === 'reset-daily-risk') {
+      if (body.confirmed !== true || !data.risk?.dailyLossBlocked) return response({ error: { message: 'El reinicio necesita confirmación y un bloqueo activo.' } }, 409);
+      data.riskResets++; data.risk = { ...data.risk, baselineEquity: 98765.43, dailyPnlUsd: 0, dailyLossBlocked: false, blockedReasons: [] };
+      for (const operation of data.operations) if (operation.state === 'preview') operation.state = 'expired';
+      save(data); await new Promise(resolve => setTimeout(resolve, 150));
+      return response({ risk: data.risk });
+    }
     if (body.action === 'preview') {
       const request = body.request, parent = request.operationId && data.operations.find(operation => operation.id === request.operationId);
       const strategy = request.strategy ?? parent.strategy, underlying = request.underlying ?? parent.underlying;
@@ -88,6 +101,26 @@ export function installF5QA(provider='alpaca') {
     }
     return response({ error: { message: 'Acción QA desconocida.' } }, 400);
   };
+}
+
+export async function runDailyRiskScenario({ evaluate, click, until, screenshot }) {
+  await evaluate('window.__f5QA.blockDailyRisk()'); await click('Actualizar estado');
+  await until(`!!document.querySelector('.f5-daily-risk')`);
+  await click('Reiniciar control diario');
+  assert.equal(await evaluate('window.__f5QA.inspect().riskResets'), 0, 'Opening the confirmation does not reset risk');
+  await click('Cancelar reinicio');
+  assert.equal(await evaluate('window.__f5QA.inspect().riskResets'), 0, 'Cancel preserves the daily lock');
+  await click('Reiniciar control diario');
+  assert(await evaluate(`document.querySelector('.f5-risk-confirmation').textContent.includes('$98,765.43')&&document.querySelector('.f5-risk-confirmation').textContent.includes('$1,000.00')`), 'Confirmation shows the new baseline and preserved limit');
+  await evaluate(`document.querySelector('.f5-daily-risk').scrollIntoView()`);
+  await screenshot('daily-risk-reset-desktop.png', 1440, 1000);
+  await screenshot('daily-risk-reset-mobile.png', 390, 844);
+  assert(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), 'Risk confirmation fits mobile');
+  await evaluate(`(()=>{const button=Array.from(document.querySelectorAll('.f5-risk-actions button')).find(e=>e.textContent==='Confirmar reinicio del control diario');button.click();button.click();})()`);
+  await until(`!document.querySelector('.f5-daily-risk')&&document.querySelector('.f5-notice')?.textContent.includes('Control diario reiniciado')`);
+  assert.equal(await evaluate('window.__f5QA.inspect().riskResets'), 1, 'Double click confirms a single reset');
+  assert.equal(await evaluate('window.__f5QA.inspect().submits'), 0, 'Reset never submits a broker order');
+  console.log('PASS: daily Paper risk confirmation, cancel, preserved loss limit, double-click guard and mobile. Responses are fixtures.');
 }
 
 export async function runF5Scenario({ evaluate, click, input, until, send, screenshot }) {

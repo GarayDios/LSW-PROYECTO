@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runDailyRiskScenario } from './f5-browser-scenario.mjs';
 /** QA only: no network request from these broker fixtures reaches a provider. */
 export function installWebullQA(){
   const qa=window.__webullQA={operations:[],previews:0,submits:0};
@@ -38,6 +39,7 @@ export async function runManualScenario({evaluate,click,input,until,screenshot})
   await evaluate(`window.__f5QA.statusFailure={code:'auth_required',message:'QA: inicia sesión para consultar.'}`);await click('Actualizar estado');
   await until(`!!document.querySelector('.f5-connection a[href^="/signin-with-chatgpt"]')`);
   await evaluate(`window.__f5QA.statusFailure=null`);await click('Actualizar estado');await until(`!!document.querySelector('.f5-account')`);
+  await runDailyRiskScenario({ evaluate, click, until, screenshot });
   assert(await evaluate(`!document.querySelector('input[aria-label="Habilitar órdenes manuales Alpaca"]').checked`),'Broker execution starts disabled');
   assert(await evaluate(`!document.body.innerText.includes('Control y automatización F5')&&!document.querySelector('.broker-plan-form')`),'No automatic execution controls exposed');
   await until(`document.querySelector('select[aria-label="Contrato F5 1"]').options.length>1`);

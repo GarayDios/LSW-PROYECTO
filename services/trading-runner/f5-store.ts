@@ -19,6 +19,7 @@ export type F5Store = {
   setSettings(ownerId: string, value: F5RiskSettings): void;
   risk(ownerId: string): F5RiskState | null;
   setRisk(ownerId: string, value: F5RiskState): void;
+  resetDailyRisk(ownerId: string, value: F5RiskState, audit: F5ControlEvent): void;
   health(ownerId: string): F5Health | null;
   setHealth(ownerId: string, value: F5Health): void;
   plans(ownerId: string): F5AutomationPlan[];
@@ -93,6 +94,18 @@ export function openF5Store(filename: string): F5Store {
     setSettings(ownerId, value) { setControl(ownerId, 'settings', value); },
     risk(ownerId) { return control<F5RiskState>(ownerId, 'risk'); },
     setRisk(ownerId, value) { setControl(ownerId, 'risk', value); },
+    resetDailyRisk(ownerId, value, audit) {
+      database.exec('begin immediate');
+      try {
+        setControl(ownerId, 'risk', value);
+        database.prepare('insert into f5_events(id,owner_id,time,dedup_key,payload) values(?,?,?,?,?)').run(audit.id, ownerId, audit.time, 'risk-reset:' + audit.id, JSON.stringify(audit));
+        for (const row of database.prepare("select state,payload from f5_operations where owner_id=? and state='preview'").all(ownerId)) {
+          const operation = { ...read(row)!, state: 'expired', message: 'La referencia de riesgo cambió. Revisa nuevamente la orden.' };
+          database.prepare("update f5_operations set state='expired',payload=? where owner_id=? and id=?").run(JSON.stringify(operation), ownerId, operation.id);
+        }
+        database.exec('commit');
+      } catch (error) { database.exec('rollback'); throw error; }
+    },
     health(ownerId) { return control<F5Health>(ownerId, 'health'); },
     setHealth(ownerId, value) { setControl(ownerId, 'health', value); },
     plans(ownerId) { return database.prepare('select payload from f5_plans where owner_id=? order by id').all(ownerId).map(row => JSON.parse(String(row.payload)) as F5AutomationPlan); },

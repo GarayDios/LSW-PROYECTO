@@ -6,6 +6,9 @@ import { strategies } from '../strategies/catalog';
 import type { StrategyId } from '../../cores/compartido/types';
 import type { F5Contract, F5Operation, F5Request, F5Side, F5Status, F5Feed } from './types';
 import F5ReportPanel from './f5-report-panel';
+import F5DailyRisk from './f5-daily-risk';
+import type { DailyRiskResetReference } from './risk-reset';
+import { resolveRecommendation, type F5RecommendationDraft } from './recommendation-draft';
 import './f5-panel.css';
 
 const cash = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '—' : value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -39,7 +42,7 @@ class F5RequestError extends Error {
   constructor(message:string,code:string){super(message);this.code=code;}
 }
 
-export default function F5Panel({ underlying: initialUnderlying, initialStrategy, initialWheelPhase = 'put', mode = 'trade', allowTrading=false, broker='alpaca',onActivity }: { underlying: string; initialStrategy: StrategyId; initialWheelPhase?: 'put' | 'call'; mode?: 'trade' | 'orders' | 'portfolio'; allowTrading?:boolean;broker?:'alpaca'|'webull';onActivity?:()=>void }) {
+export default function F5Panel({ underlying: initialUnderlying, initialStrategy, initialWheelPhase = 'put', initialDraft, mode = 'trade', allowTrading=false, broker='alpaca',onActivity }: { underlying: string; initialStrategy: StrategyId; initialWheelPhase?: 'put' | 'call'; initialDraft?: F5RecommendationDraft; mode?: 'trade' | 'orders' | 'portfolio'; allowTrading?:boolean;broker?:'alpaca'|'webull';onActivity?:()=>void }) {
   const endpoint=broker==='webull'?'/api/webull-f5':'/api/f5',brokerLabel=broker==='webull'?'Webull Sandbox':'Alpaca Paper',brokerName=broker==='webull'?'Webull':'Alpaca';
   const post = <T,>(body:unknown)=>api<T>(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const [tab, setTab] = useState<'operations' | 'report'>('operations');
@@ -85,6 +88,8 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const [attemptedIds,setAttemptedIds]=useState<Set<string>>(()=>new Set());
   const mounted = useRef(true);
   const contractsTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const pendingDraft = useRef<F5RecommendationDraft | null>(null);
+  const [recommendation, setRecommendation] = useState<{ draft: F5RecommendationDraft; missing: string[] | null } | null>(null);
 
   const refresh = useCallback(async () => {
     const sequence = ++statusSequence.current;
@@ -106,7 +111,18 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     const timer = setInterval(() => { if (!busyRef.current) void refresh(); }, 15000);
     return () => { mounted.current = false; statusSequence.current++; chainSequence.current++; rollSequence.current++; formSequence.current++; clearInterval(timer); };
   }, [refresh]);
-  useEffect(() => { let active=true;queueMicrotask(()=>{if(!active)return;setUnderlying(initialUnderlying); setStrategy(initialStrategy); setWheelPhase(initialWheelPhase); setSelection(['', '']); setPreview(null); setManagement(null); formSequence.current++;});return()=>{active=false;}; }, [initialUnderlying, initialStrategy, initialWheelPhase]);
+  useEffect(() => {
+    let active=true;
+    queueMicrotask(()=>{
+      if(!active)return;
+      const draft = initialDraft?.broker === broker && initialDraft.underlying === initialUnderlying && initialDraft.strategy === initialStrategy ? initialDraft : null;
+      setUnderlying(initialUnderlying); setStrategy(initialStrategy); setWheelPhase(draft?.wheelPhase ?? initialWheelPhase);
+      setSelection(['', '']); setPreview(null); setManagement(null); setError(''); setNotice(''); formSequence.current++;
+      pendingDraft.current = draft; setRecommendation(draft ? { draft, missing: null } : null);
+      if(draft){setExpiry(draft.expiry);if(draft.longExpiry)setLongExpiry(draft.longExpiry);setQuantity(String(draft.quantity));setBudget(String(draft.maxCapitalUsd));setLimitPrice('');setTab('operations');}
+    });
+    return()=>{active=false;};
+  }, [initialUnderlying, initialStrategy, initialWheelPhase, initialDraft, broker]);
   useEffect(() => {
     if (!preview) return;
     queueMicrotask(()=>setNow(Date.now()));
@@ -124,11 +140,11 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
   const expired = !!preview && Date.parse(preview.expiresAt) <= now;
   const selectedContracts = selection.map(symbol => contracts.find(contract => contract.symbol === symbol));
 
-  const invalidate=useCallback(() => { formSequence.current++; setPreview(null); setError(''); setNotice(''); },[]);
+  const invalidate=useCallback((discardRecommendation=true) => { formSequence.current++; setPreview(null); setError(''); setNotice(''); if(discardRecommendation){pendingDraft.current=null;setRecommendation(null);} },[]);
   function changeStrategy(next: StrategyId) { invalidate(); setStrategy(next); setSelection(['', '']); }
   const loadContracts=useCallback(async () => {
     if(contractsTimer.current!==null){clearTimeout(contractsTimer.current);contractsTimer.current=null;}
-    invalidate();
+    invalidate(false);
     const sequence = ++chainSequence.current;
     const requestedKey = chainKey;
     setChainLoading(true); setChainError(''); setSelection(['', '']); setContracts([]); setLoadedKey('');
@@ -136,11 +152,17 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
       const expiries = strategy === 'pmcc' ? [...new Set([expiry, longExpiry])] : [expiry];
       const responses = await Promise.all(expiries.map(value => api<{ contracts: F5Contract[]; complete: boolean; feed: F5Feed }>(`${endpoint}?resource=contracts&underlying=${encodeURIComponent(underlying)}&expiry=${encodeURIComponent(value)}`)));
       if (!mounted.current || sequence !== chainSequence.current) return;
-      setContracts([...new Map(responses.flatMap(result => result.contracts).map(contract => [contract.symbol, contract])).values()].sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike));
+      const received = [...new Map(responses.flatMap(result => result.contracts).map(contract => [contract.symbol, contract])).values()].sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike);
+      setContracts(received);
       setChainComplete(responses.every(result => result.complete)); setChainFeed(responses[0]?.feed ?? 'indicative'); setLoadedKey(requestedKey);
+      const draft = pendingDraft.current;
+      if(draft && draft.broker === broker && requestedKey === `${draft.underlying}|${draft.expiry}|${draft.strategy === 'pmcc' ? draft.longExpiry : ''}`){
+        const resolved = resolveRecommendation(draft, received);
+        setSelection(resolved.selection);setRecommendation({draft,missing:resolved.missing});
+      }
     } catch (failure) { if (mounted.current && sequence === chainSequence.current) setChainError(failure instanceof Error ? failure.message : 'No se pudieron cargar los contratos.'); }
     finally { if (mounted.current && sequence === chainSequence.current) setChainLoading(false); }
-  },[chainKey,strategy,expiry,longExpiry,underlying,invalidate,endpoint]);
+  },[chainKey,strategy,expiry,longExpiry,underlying,invalidate,endpoint,broker]);
   useEffect(()=>{
     let active=true;queueMicrotask(()=>{if(!active)return;setLoadedKey('');setSelection(['','']);setContracts([]);setChainError('');
     if(mode!=='trade'||tab!=='operations'||!available||!/^[A-Z][A-Z0-9.-]{0,14}$/.test(underlying)||!expiry||strategy==='pmcc'&&!longExpiry){setChainLoading(false);return;}
@@ -185,6 +207,21 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : 'No se pudo confirmar la cancelación.'); }
     finally { busyRef.current = false; if (mounted.current) { setBusy(false); await refresh();onActivity?.(); } }
   }
+  async function resetDailyRisk(reference: DailyRiskResetReference): Promise<boolean> {
+    if (busyRef.current) return false;
+    busyRef.current = true; setBusy(true); invalidate(false);
+    try {
+      await post({ action: 'reset-daily-risk', confirmed: true, reference });
+      if (mounted.current) setNotice('Control diario reiniciado con el patrimonio actual como referencia. El límite de pérdida se conserva. Ya puedes preparar otra revisión.');
+      return true;
+    } catch (failure) {
+      if (mounted.current) setError(failure instanceof Error ? failure.message : 'No se pudo confirmar el reinicio. Actualiza el estado.');
+      return false;
+    } finally {
+      await refresh(); busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   function manage(operation: F5Operation, action: 'close' | 'hedge' | 'roll') {
     invalidate(); rollSequence.current++; setManagement({ operation, action }); setManagementLimit(''); setManagementBudget('1000'); setHedgeSide('buy'); setHedgeQuantity('1'); setRollContracts([]); setRollContract(''); setRollLoading(false);
   }
@@ -227,11 +264,18 @@ export default function F5Panel({ underlying: initialUnderlying, initialStrategy
       {account && <div className="f5-account"><div><span>Patrimonio Paper</span><strong>{cash(account.equity)}</strong></div><div><span>Efectivo</span><strong>{cash(account.cash)}</strong></div><div><span>Poder de compra de opciones</span><strong>{cash(account.optionsBuyingPower)}</strong></div><div><span>Poder de compra de la cuenta</span><strong>{cash(account.buyingPower)}</strong></div></div>}
     </section>
 
+    {broker === 'alpaca' && status?.risk?.dailyLossBlocked && status.riskSettings && account && <F5DailyRisk risk={status.risk} settings={status.riskSettings} equity={account.equity} busy={busy} onReset={resetDailyRisk}/>}
+
     <p className="f5-muted">Órdenes manuales: {allowTrading?'habilitadas para revisar y confirmar en esta sesión':'deshabilitadas en esta sesión'}. Cada apertura, cierre, renovación o cobertura necesita una revisión y tu confirmación.</p>
     <nav className="f5-workspace-tabs" aria-label="Secciones de opciones F5"><button className={tab === 'operations' ? 'active' : ''} aria-current={tab === 'operations' ? 'page' : undefined} onClick={() => setTab('operations')}>Operaciones F5</button><button className={tab === 'report' ? 'active' : ''} aria-current={tab === 'report' ? 'page' : undefined} onClick={() => setTab('report')}>Reporte F5</button></nav>
     {tab === 'report' && <F5ReportPanel available={available} broker={broker}/>}
     {tab === 'operations' && <>
     {mode === 'trade' && <section className="panel f5-builder"><div className="f5-heading"><div><span className="f5-kicker">01 · PREPARA LA ESTRATEGIA</span><h2>Elige contratos y define tu límite</h2><p>Una revisión no envía órdenes. El servidor vuelve a comprobar la cuenta, las cotizaciones y la cobertura antes del envío.</p></div></div>
+      {recommendation && <div className="f5-recommendation" role={recommendation.missing?.length ? 'alert' : 'status'}>
+        <strong>Propuesta del recomendador · {brokerLabel}</strong>
+        <p>{recommendation.missing === null ? 'Consultando los contratos recomendados con el bróker…' : recommendation.missing.length ? `No se pudieron seleccionar estos contratos: ${recommendation.missing.join(', ')}. Actualiza la cadena o vuelve al recomendador para obtener otra propuesta.` : 'Contratos recomendados seleccionados con sus vencimientos y cantidades. Revisa las cotizaciones actuales e introduce tu precio límite.'}</p>
+        <p>{recommendation.draft.legs.map(leg => leg.symbol).join(' · ')}. Capital de tu análisis: {cash(recommendation.draft.maxCapitalUsd)}.</p>
+      </div>}
       <form onSubmit={prepareOpening}>
         <fieldset disabled={busy} className="f5-fields-reset"><div className="f5-form-grid">
           <label className="f5-field">Estrategia F5<select aria-label="Estrategia F5" value={strategy} onChange={event => changeStrategy(event.target.value as StrategyId)}>{strategies.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}</select></label>

@@ -27,6 +27,7 @@ export type AnalysisResult = {
   validationStartTime: number | null;
   warning: string;
   backtest: {
+    equityCurve: { time: number; equity: number; benchmark: number; drawdownPct: number }[];
     initialCapital: number; finalEquity: number; returnPct: number; maxDrawdownPct: number;
     buyHoldReturnPct: number; trades: BacktestTrade[]; completedTrades: number;
     winRatePct: number | null; feeBps: number; slippageBps: number;
@@ -89,6 +90,8 @@ export function analyzeHistory(input: readonly Candle[], options: AnalysisOption
   let cash = initialCapital, quantity = 0, peak = initialCapital, maxDrawdownPct = 0;
   let active: { entryTime: number; entryPrice: number; quantity: number; cost: number } | null = null;
   const trades: BacktestTrade[] = [];
+  const equityCurve: AnalysisResult['backtest']['equityCurve'] = [];
+  const benchmarkQuantity = candles[validationIndex] ? initialCapital / (candles[validationIndex].open * (1 + slippage) * (1 + fee)) : 0;
   for (let i = validationIndex; i < candles.length; i++) {
     const candle = candles[i];
     // A signal becomes tradable only at the NEXT bar's open, never at its own close.
@@ -108,6 +111,7 @@ export function analyzeHistory(input: readonly Candle[], options: AnalysisOption
     const equity = cash + quantity * candle.close;
     peak = Math.max(peak, equity);
     maxDrawdownPct = Math.max(maxDrawdownPct, (1 - equity / peak) * 100);
+    equityCurve.push({ time: candle.time, equity: round(equity), benchmark: round(benchmarkQuantity * candle.close), drawdownPct: round((1 - equity / peak) * 100) });
   }
   const finalClose = candles.at(-1)?.close ?? 0;
   const finalEquity = cash + quantity * finalClose;
@@ -118,6 +122,7 @@ export function analyzeHistory(input: readonly Candle[], options: AnalysisOption
     signals, latest: signals.at(-1) ?? null, indicators, structure, technicalEvents, rule, warmupBars: SLOW, validationStartTime,
     warning: candles.length < 100 ? 'Histórico insuficiente para una validación temporal útil; se recomiendan al menos 100 velas cerradas.' : 'Regla educativa fija. Los resultados históricos no garantizan rentabilidad futura.',
     backtest: {
+      equityCurve,
       initialCapital, finalEquity: round(finalEquity), returnPct: round((finalEquity / initialCapital - 1) * 100), maxDrawdownPct: round(maxDrawdownPct), buyHoldReturnPct: round(buyHoldReturnPct),
       trades, completedTrades: completed.length, winRatePct: completed.length ? round(completed.filter(trade => trade.netPnl > 0).length / completed.length * 100) : null,
       feeBps, slippageBps, startTime: validationStartTime, endTime: candles.at(-1)?.time ?? null, openPosition: quantity > 0,

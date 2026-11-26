@@ -45,6 +45,7 @@ export type F5Status = {
   configured: boolean; enabled: boolean; marketOpen: boolean; mode: 'paper' | 'sandbox'; feed: F5Feed;
   provider?: 'alpaca' | 'webull'; activitiesComplete?: boolean;
   account: F5Account | null; operations: F5Operation[]; positions: F5Position[]; activities: F5Activity[];
+  risk?: F5RiskState; riskSettings?: F5RiskSettings;
   message?: string;
 };
 
@@ -54,6 +55,7 @@ export type F5RiskSettings = {
 };
 export type F5RiskState = {
   date: string; baselineEquity: number; equity: number; dailyPnlUsd: number;
+  resetId?: string;
   dailyLossBlocked: boolean; grossExposureUsd: number; premiumExposureUsd: number;
   netDelta: number | null; uncertain: boolean; blockedReasons: string[]; updatedAt: string;
 };
@@ -75,6 +77,7 @@ export type F5ControlEvent = {
   id: string; time: string; planId?: string; operationId?: string;
   status: 'info' | 'waiting' | 'blocked' | 'submitted' | 'partial' | 'filled' | 'rejected' | 'canceled' | 'expired' | 'ambiguous' | 'error';
   message: string;
+  riskReset?: { previous: F5RiskState; newBaselineEquity: number; maxDailyLossUsd: number };
 };
 export type F5Health = { running: boolean; automationEnabled: boolean; lastStartedAt: string | null; lastCompletedAt: string | null; lastError: string | null };
 export type F5Control = { settings: F5RiskSettings; plans: F5AutomationPlan[]; events: F5ControlEvent[]; health: F5Health; risk: F5RiskState | null };

@@ -45,3 +45,22 @@ test('thousands of contracts produce a bounded search and at most the requested 
   const research=researchFixture(),base=research.options.contracts;research.options.contracts=Array.from({length:4368},(_,i)=>({...base[i%base.length],symbol:base[i%base.length].symbol+'-QA'+i}));
   const result=recommendContracts({research,strategy:'pmcc',days:30,settings,limit:3});assert.equal(result.candidates.length,3);assert.ok(result.checked<=40);assert.ok(result.poolSize<=128);assert.equal(result.bounded,true);assert.equal(result.totalContracts,4368);
 });
+
+test('empty historical chains expose the provider reason instead of only a Monte Carlo prerequisite',()=>{
+  const research=researchFixture();
+  research.options.contracts=[];
+  research.options.status={source:'Provider',status:'unavailable',message:'La cadena actual no reconstruye cotizaciones al corte histórico.'};
+  const result=recommendContracts({research,strategy:'wheel',days:32,settings});
+  assert.equal(result.candidates.length,0);assert.equal(result.totalContracts,0);
+  assert.ok(result.missing.includes(research.options.status.message));
+});
+
+test('quality diagnostics and eligible counts remain available when another prerequisite blocks proposals',()=>{
+  const research=researchFixture();research.macro.riskFreeRate=missingVariable('FRED','Missing rate');
+  const result=recommendContracts({research,strategy:'wheel',days:32,settings});
+  assert.equal(result.candidates.length,0);assert.ok(result.diagnostics);
+  assert.ok(result.eligibleContracts>0,'Missing macro must not report that every received contract failed quality');
+  const invalid=researchFixture();for(const contract of invalid.options.contracts)contract.deliverableShares=missingVariable('Provider','Unknown deliverable');
+  const rejected=recommendContracts({research:invalid,strategy:'wheel',days:32,settings});
+  assert.ok(rejected.diagnostics?.rejected.some(reason=>reason.code==='terms'&&reason.count>0));
+});

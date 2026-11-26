@@ -7,6 +7,23 @@ dispone de un adaptador de acciones en sandbox. Consulta la
 Las secciones siguientes de automatización se conservan como documentación de la
 librería histórica; no describen la habilitación del runtime actual.
 
+## Reinicio manual del control diario F5 en Paper
+
+Cuando se activa el límite de pérdida diaria, el panel Alpaca Paper muestra la
+referencia del período, la variación del patrimonio y el límite vigente. El botón
+**Reiniciar control diario** abre una confirmación: usa el patrimonio consultado
+al confirmar como nueva referencia y conserva todos los límites y las operaciones.
+La pérdida se mide por cambios en el patrimonio de toda la cuenta, incluidas las
+posiciones abiertas, desde esa referencia.
+
+El proxy autenticado acepta `action: 'reset-daily-risk'`, `confirmed: true` y una
+`reference` con `date`, `baselineEquity`, `maxDailyLossUsd` y `resetId` (inicialmente
+`null`). El servicio recibe esos datos en `POST /f5/reset-daily-risk`. Rechaza otras
+cuentas, Webull, referencias obsoletas y órdenes pendientes de conciliar. Guarda el
+estado y la auditoría en una transacción y vence las revisiones previas para exigir
+otra revisión de cada orden. El identificador de período impide reutilizar una
+confirmación anterior. El reinicio no envía órdenes al bróker.
+
 ## Referencia histórica de automatización
 
 # Automatización de acciones en Alpaca Paper

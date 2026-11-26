@@ -4,7 +4,7 @@ import {strategyPnlAtSpot} from '../../../cores/evaluacion/strategy-outlook';
 const number=(value:number|null|undefined,digits=2)=>value===null||value===undefined||!Number.isFinite(value)?'Sin dato':value.toLocaleString('en-US',{maximumFractionDigits:digits,minimumFractionDigits:digits});
 const money=(value:number|null|undefined)=>value===null||value===undefined||!Number.isFinite(value)?'Sin calcular':value.toLocaleString('en-US',{style:'currency',currency:'USD'});
 const percent=(value:number|null|undefined)=>value===null||value===undefined?'Sin dato':`${number(value*100)}%`;
-export function HistoricalPointInspector({state,entryDate,mark,capital,positionEnabled}:{state:ReturnType<typeof historicalState>;entryDate:string;mark:ReturnType<typeof historicalPositionMark>|null;capital:number|null;positionEnabled:boolean}){
+export function HistoricalPointInspector({state,entryDate,mark,capital,positionEnabled,showPosition=true}:{state:ReturnType<typeof historicalState>;entryDate:string;mark:ReturnType<typeof historicalPositionMark>|null;capital:number|null;positionEnabled:boolean;showPosition?:boolean}){
   const {bar,previous,indicator:t,structure,market}=state;if(!bar)return null;
   const change=previous?bar.close/previous.close-1:null;
   const rows:[string,string][]=[['Apertura',money(bar.open)],['Máximo',money(bar.high)],['Mínimo',money(bar.low)],['Cierre',money(bar.close)],['Cambio frente al cierre previo',percent(change)],['Volumen',number(bar.volume,0)],
@@ -15,9 +15,9 @@ export function HistoricalPointInspector({state,entryDate,mark,capital,positionE
     <details className="replay-point-details"><summary>Consultar indicadores y contexto de este cierre</summary><div className="replay-data-grid">{rows.map(([label,value])=><div key={label} data-replay-metric={label}><span>{label}</span><strong>{value}</strong></div>)}</div></details>
     <p>Señal conocida en este cierre: <strong>{state.analysis?.latest?.action==='buy'?'Entrada':state.analysis?.latest?.action==='sell'?'Salida':'Esperar'}</strong>. {state.analysis?.latest?.reason??'Faltan cierres para completar la regla seleccionada.'}</p>
     {!!state.events.length&&<ul>{state.events.map((event,i)=><li key={i}>{event.reason}</li>)}</ul>}
-    <div className="historical-point-pnl" aria-label="Ganancia o pérdida en el punto" data-pnl={mark?.pnl}>
+    {showPosition&&<div className="historical-point-pnl" aria-label="Ganancia o pérdida en el punto" data-pnl={mark?.pnl}>
       <h3>Si cierro la posición en este punto</h3>{mark?<><div className="replay-data-grid"><div><span>P/L teórico neto</span><strong className={mark.pnl>=0?'positive':'negative'}>{money(mark.pnl)}</strong></div><div><span>Retorno sobre capital requerido</span><strong>{capital&&capital>0?percent(mark.pnl/capital):'Sin calcular'}</strong></div><div><span>Días transcurridos</span><strong>{number(mark.elapsedDays,1)}</strong></div><div><span>Días restantes al horizonte corto</span><strong>{number(mark.daysRemaining,1)}</strong></div><div><span>Valor neto de las opciones</span><strong>{money(mark.value)}</strong></div><div><span>Delta neta · acciones</span><strong>{number(mark.delta)}</strong></div><div><span>Gamma neta</span><strong>{number(mark.gamma,4)}</strong></div><div><span>Theta neta · USD/día</span><strong>{money(mark.theta)}</strong></div><div><span>Vega neta · USD/punto de IV</span><strong>{money(mark.vega)}</strong></div></div><p>Incluye primas, comisiones de entrada/salida y financiación del débito. Los términos y la volatilidad de la posición se mantienen como estaban al entrar.</p></>:<p role="status">{positionEnabled?'Este punto queda fuera del plazo del ejercicio o faltan sus entradas. Selecciona un cierre entre la entrada y su horizonte.':'Calcula el ejercicio teórico para ver el P/L de la estrategia en el punto seleccionado.'}</p>}
-    </div>
+    </div>}
   </section>;
 }
 

@@ -8,6 +8,7 @@ import type { F5Store } from './f5-store.ts';
 import { executed, f5Residual, parsePlan, riskSettingsSchema } from './f5-model.ts';
 import { enforceF5Risk, measureF5Risk } from '../../src/cores/06-gestion-de-riesgos/f5-risk.ts';
 import { buildF5Report } from './f5-report.ts';
+import { dailyRiskResetSchema } from '../../src/features/f5/risk-reset.ts';
 
 export type F5Broker = Pick<AlpacaOptionsClient, 'account' | 'clock' | 'contract' | 'positions' | 'orders' | 'activities' | 'orderByClientId' | 'submit' | 'cancel'> & Partial<Pick<AlpacaOptionsClient, 'stockQuote'|'fillActivities'|'feeActivities'|'optionActivities'>> & {
   contracts(underlying:string,expiry?:string):Promise<{contracts:F5Contract[];complete:boolean;feed:F5Feed}>;
@@ -280,9 +281,9 @@ export function createF5Service(options: Options) {
     if (!options.broker) return { configured: false, enabled: options.enabled, marketOpen: false, mode: provider==='webull'?'sandbox':'paper', provider,feed, account: null, operations: store.list(options.ownerId), positions: [], activities: [], message: `Configura las claves de ${label} en el servicio.` };
     await reconcile();
     const [account, marketOpen, positions, activities] = await Promise.all([broker().account(), broker().clock(), broker().positions(), broker().activities()]);
-    await measure(account, positions);
+    const risk = await measure(account, positions);
     const operations = store.list(options.ownerId);
-    return { configured: true, enabled: options.enabled, marketOpen, mode: provider==='webull'?'sandbox':'paper', provider,feed, account, activitiesComplete:broker().activitiesComplete?.()??true, operations: operations.map(operation => operation.action === 'open' ? { ...operation, lifecycle: f5Residual(operation, operations, positions, activities, now()).lifecycle } : operation), positions, activities,...(provider==='webull'?{message:'Permisos validados por revisión de Webull; no se presume un nivel de opciones. Horario regular calculado con calendario NYSE; cotizaciones recientes y revisión del proveedor obligatorias para enviar.'}:{}) };
+    return { configured: true, enabled: options.enabled, marketOpen, mode: provider==='webull'?'sandbox':'paper', provider,feed, account, risk, riskSettings: store.settings(options.ownerId), activitiesComplete:broker().activitiesComplete?.()??true, operations: operations.map(operation => operation.action === 'open' ? { ...operation, lifecycle: f5Residual(operation, operations, positions, activities, now()).lifecycle } : operation), positions, activities,...(provider==='webull'?{message:'Permisos validados por revisión de Webull; no se presume un nivel de opciones. Horario regular calculado con calendario NYSE; cotizaciones recientes y revisión del proveedor obligatorias para enviar.'}:{}) };
   }
 
   async function handle(method: string, path: string, ownerId: string, body?: unknown): Promise<Result> {
@@ -296,9 +297,31 @@ export function createF5Service(options: Options) {
         if (!underlying.success || expiry !== null && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) fail('f5_invalid_query', 'Selecciona empresa y vencimiento válidos.', 400);
         return { status: 200, value: await broker().contracts(underlying.data, expiry ?? undefined) };
       }
-      if (!((method === 'GET' && ['/f5/status','/f5/report'].includes(url.pathname)) || (method === 'POST' && ['/f5/preview', '/f5/submit', '/f5/cancel'].includes(url.pathname)))) return { status: 404, value: { error: { code: 'not_found', message: 'La operación F5 no existe.' } } };
+      if (!((method === 'GET' && ['/f5/status','/f5/report'].includes(url.pathname)) || (method === 'POST' && ['/f5/preview', '/f5/submit', '/f5/cancel', '/f5/reset-daily-risk'].includes(url.pathname)))) return { status: 404, value: { error: { code: 'not_found', message: 'La operación F5 no existe.' } } };
       lease = store.acquire(ownerId, now());
       if (!lease) fail('f5_request_busy', 'La cuenta está procesando otra solicitud F5. Actualiza su estado antes de continuar.');
+      if (method === 'POST' && url.pathname === '/f5/reset-daily-risk') {
+        if (provider !== 'alpaca') fail('f5_risk_reset_unavailable', 'El reinicio manual solo está disponible para Alpaca Paper.');
+        const parsed = dailyRiskResetSchema.safeParse(body);
+        if (!parsed.success) fail('f5_risk_reset_invalid', 'Confirma el reinicio con la referencia actual.', 400);
+        broker();
+        const state = await status(), risk = state.risk!, settings = store.settings(ownerId);
+        const { reference } = parsed.data;
+        if (reference.date !== risk.date || reference.baselineEquity !== risk.baselineEquity || reference.maxDailyLossUsd !== settings.maxDailyLossUsd || reference.resetId !== (risk.resetId ?? null)) fail('f5_risk_reset_changed', 'La referencia de riesgo cambió. Actualiza el estado.');
+        if (!risk.dailyLossBlocked) fail('f5_risk_reset_not_needed', 'El bloqueo diario ya no está activo.');
+        accountReady(state.account!, 0);
+        if (state.account!.equity <= 0) fail('f5_account_uncertain', 'No se pudo verificar un patrimonio positivo para reiniciar el control.');
+        if (store.list(ownerId).some(unresolved)) fail('f5_pending_operations', 'Concilia las operaciones pendientes antes de reiniciar el control diario.');
+        if (flatten(await broker().orders()).length) fail('f5_pending_broker_orders', 'Concilia las órdenes pendientes antes de reiniciar el control diario.');
+        const next = await measureF5Risk({ account: state.account!, positions: state.positions, operations: store.list(ownerId), settings, previous: null, time: now(), feed, contract: symbol => broker().contract(symbol) });
+        next.resetId = randomUUID();
+        if (next.date !== reference.date || !store.owns(ownerId, lease, now())) fail('f5_risk_reset_changed', 'La revisión del reinicio venció. Actualiza el estado.');
+        const audit: F5ControlEvent = { id: randomUUID(), time: new Date(now()).toISOString(), status: 'info',
+          message: `Reinicio manual del control diario Alpaca Paper. Referencia anterior ${cash(risk.baselineEquity)}, variación ${cash(risk.dailyPnlUsd)}; nueva referencia ${cash(next.baselineEquity)}. Límite diario ${cash(settings.maxDailyLossUsd)}.`,
+          riskReset: { previous: risk, newBaselineEquity: next.baselineEquity, maxDailyLossUsd: settings.maxDailyLossUsd } };
+        store.resetDailyRisk(ownerId, next, audit);
+        return { status: 200, value: { risk: next } };
+      }
       if (method === 'GET') {
         const state=await status();
         if(url.pathname==='/f5/status')return {status:200,value:state};

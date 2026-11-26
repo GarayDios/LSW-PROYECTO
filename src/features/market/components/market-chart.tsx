@@ -18,8 +18,11 @@ import type { MarketSource } from '../hooks/use-market-history';
 import type { ScannerProjection } from '../../../cores/evaluacion/scanner';
 import {useChartZoom,useChartWheelZoom} from '../hooks/use-chart-zoom';
 import ChartZoomControls from './chart-zoom-controls';
+import { detectTrendLines } from '../../../cores/01-analisis-tecnico/trend-lines';
+import type { ScannerCoreId } from '../../../cores/evaluacion/scanner-settings';
 
 type MarketChartProps = {
+  activeCores?: readonly ScannerCoreId[];
   projection?: ScannerProjection | null;
   symbol: string;
   price: number;
@@ -84,7 +87,7 @@ export default function MarketChart(props: MarketChartProps) {
   return <HistoryChart {...props} {...{ symbol, price, range, interval, startDate, endDate, chartType, optionLevels, volatility, days, rate, dividendYield }} history={history} loadedHistory={loadedHistory} viewWindow={viewWindow} onViewWindow={setViewWindow}/>;
 }
 
-function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news, projection:fullProjection }: MarketChartProps & {history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
+function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWindow, symbol, range, interval, startDate, endDate, chartType, optionLevels = false, volatility = .3, days = 30, rate = .04, dividendYield = 0, source = 'demo', feed, signals = [], validationStartTime = null, observedOption = null, historicalVolatility = null, strategyLevels=[], technicalAnalysis, studyHistory, studies=defaultChartStudies, onStudyToggle, news, activeCores, projection:fullProjection }: MarketChartProps & {history: Candle[]; loadedHistory: Candle[]; viewWindow: 'all' | '6m' | '3m'; onViewWindow: (value: 'all' | '6m' | '3m') => void}) {
   const [hovered, setHovered] = useState<number | null>(null);
   const zoom=useChartZoom(fullHistory,`${symbol}/${source}/${interval}/${startDate}/${endDate}/${viewWindow}`,12);
   const history=zoom.visible;
@@ -110,9 +113,15 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
   const newsGroups = useMemo(() => studies.news && newsSnapshot ? groupChartNews({ articles: newsSnapshot.news.articles,
     history, interval, asOf: newsSnapshot.asOf, startDate: newsViewStart, endDate: newsViewEnd, left: LEFT, right: dataRight }) : [],
     [studies.news, newsSnapshot, history, interval, newsViewStart, newsViewEnd, dataRight]);
-  const technicalBars = studyHistory ?? loadedHistory;
-  const technical = useMemo(() => technicalAnalysis?.indicators ?? calculateTechnicalIndicators(technicalBars), [technicalAnalysis, technicalBars]);
-  const structure = useMemo(() => technicalAnalysis?.structure ?? analyzeSupportResistance(technicalBars), [technicalAnalysis, technicalBars]);
+  const technicalBars = useMemo(() => (studyHistory ?? loadedHistory).filter(bar => bar.time <= history.at(-1)!.time), [studyHistory, loadedHistory, history]);
+  const technical = useMemo(() => technicalAnalysis?.indicators.filter(point => point.time <= history.at(-1)!.time) ?? calculateTechnicalIndicators(technicalBars), [technicalAnalysis, technicalBars, history]);
+  const structure = useMemo(() => analyzeSupportResistance(technicalBars), [technicalBars]);
+  const trends = useMemo(() => studies.trends ? detectTrendLines(technicalBars).filter(line => line.endTime >= history[0].time) : [], [technicalBars, studies.trends, history]);
+  const structureLevels = structure.allLevels.filter(level => level.confirmedAt <= history.at(-1)!.time);
+  const levelNames = new Map<string, string>();
+  for (const kind of ['support', 'resistance'] as const) {
+    structure.allLevels.filter(level => level.kind === kind).forEach((level, index) => levelNames.set(level.id, `${kind === 'support' ? 'S' : 'R'}${index + 1}`));
+  }
   const technicalEvents = useMemo(() => technicalAnalysis?.technicalEvents ?? detectTechnicalEvents(technicalBars, technical, structure.points), [technicalAnalysis, technicalBars, technical, structure]);
   const gaps = useMemo(() => detectOpeningGaps(technicalBars, interval), [technicalBars, interval]);
   const index = hovered === null ? null : Math.min(candles.length - 1, hovered);
@@ -132,8 +141,8 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
   ] : [];
   const levels: {value:number;label:string;color:string;fromTime?:number;labelVisible?:boolean;inlineLabel?:boolean}[] = [
     ...strategyLevels.filter(level=>Number.isFinite(level.value)&&level.value>0).map(level => ({ ...level, labelVisible: true, inlineLabel: level.kind !== 'strategy' })),
-    ...(studies.supportResistance ? structure.levels.map(level => ({ value: level.price,
-      label: `${level.kind === 'support' ? 'Soporte' : 'Resistencia'} confirmado · ${level.touches} contactos`,
+    ...(studies.supportResistance ? structureLevels.map(level => ({ value: level.price,
+      label: `${level.kind === 'support' ? 'Soporte' : 'Resistencia'} ${levelNames.get(level.id)} confirmado · ${level.touches} contactos`,
       color: level.kind === 'support' ? UP : DOWN, fromTime: level.confirmedAt, labelVisible: true, inlineLabel: true })) : []),
     ...(studies.supportResistance ? provisionalLevels : []),
     ...(optionLevels && modelAvailable ? [{value:strike,label:source==='demo'?'Contrato demo · strike ATM':'Contrato observado · strike',color:'#bca2ff',labelVisible:true,inlineLabel:true}] : []),
@@ -148,9 +157,10 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
   }) : [];
   const gapPrices = studies.gaps ? gaps.filter(event => event.time >= history[0].time && event.time <= history.at(-1)!.time)
     .flatMap(event => [event.price, event.previousClose ?? event.price]) : [];
+  const trendValues = trends.flatMap(line => { const time = Math.max(line.confirmedAt, history[0].time); return [line.startPrice + (line.pivotPrice - line.startPrice) * (time - line.startTime) / (line.pivotTime - line.startTime), line.endPrice]; });
   const projectionValues = projection ? [projection.lower, projection.upper, projection.target, projection.baseline, projection.spot] : [];
-  const minimum = Math.min(...candles.map(candle => candle.low), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues);
-  const maximum = Math.max(...candles.map(candle => candle.high), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues);
+  const minimum = Math.min(...candles.map(candle => candle.low), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues, ...trendValues);
+  const maximum = Math.max(...candles.map(candle => candle.high), ...levels.map(l=>l.value), ...averageValues, ...gapPrices, ...projectionValues, ...trendValues);
   const padding = Math.max(maximum - minimum, maximum * .005) * 0.18;
   const low = minimum - padding;
   const high = maximum + padding;
@@ -179,10 +189,16 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
   const grid = Array.from({ length: 5 }, (_, i) => high - extent * i / 4);
   const tickCount = Math.max(2, Math.min(7, Math.floor((RIGHT - LEFT) / 110) + 1));
   const ticks = [...new Set(Array.from({ length: tickCount }, (_, i) => Math.round(i * (candles.length - 1) / (tickCount - 1))))];
-  function bucketForTime(time: number) {
+  function sourceIndexForTime(time: number) {
     let lo = 0, hi = history.length - 1;
     while (lo < hi) { const middle = Math.floor((lo + hi) / 2); if (history[middle].time < time) lo = middle + 1; else hi = middle; }
-    return Math.min(candles.length - 1, Math.floor(lo / bucketSize));
+    return lo;
+  }
+  function bucketForTime(time: number) {
+    return Math.min(candles.length - 1, Math.floor(sourceIndexForTime(time) / bucketSize));
+  }
+  function trendX(time: number) {
+    return Math.min(dataRight, LEFT + step * (sourceIndexForTime(time) + .5) / bucketSize);
   }
   const markerBuckets = new Map<string, { signal: AnalysisSignal; index: number; count: number }>();
   for (const signal of signals) {
@@ -217,7 +233,13 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
     const buy = marker.signal.action === 'buy';
     return { ...marker, id: `signal:${id}`, buy, markerY: buy ? Math.min(BOTTOM - 9, y(candles[marker.index].low) + 8) : Math.max(TOP + 9, y(candles[marker.index].high) - 8) };
   });
+  const trendMarkers = trends.map((line, index) => {
+    const time = Math.max(line.confirmedAt, history[0].time);
+    const price = line.startPrice + (line.pivotPrice - line.startPrice) * (time - line.startTime) / (line.pivotTime - line.startTime);
+    return { id: `trend:${line.id}`, x: trendX(time), y: y(price), text: `T${index + 1} ${line.direction === 'up' ? 'alcista' : 'bajista'}`, direction: line.direction, time };
+  });
   const labelCandidates = [
+    ...trendMarkers,
     ...eventMarkers.map(marker => ({ id: marker.id, x: x(marker.bucket), y: marker.markerY, text: marker.text, direction: marker.event.direction, time: marker.event.time })),
     ...signalMarkers.map(marker => ({ id: marker.id, x: x(marker.index), y: marker.markerY, text: marker.buy ? 'COMPRA' : 'VENTA', direction: marker.buy ? 'up' as const : 'down' as const, time: marker.signal.time })),
   ].sort((a, b) => b.time - a.time);
@@ -228,7 +250,7 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
     labelColumns[label.direction].push(label.x); return true;
   });
   const annotationLabels = placeChartLabels([
-    ...levels.flatMap((level, i) => level.inlineLabel ? [{ id: `level:${i}`, x: RIGHT - 130, y: y(level.value), text: level.label.replace(' confirmado', ''), direction: 'down' as const }] : []),
+    ...levels.flatMap((level, i) => level.inlineLabel ? [{ id: `level:${i}`, x: RIGHT - 130, y: y(level.value), text: level.label.replace(' confirmado', '').split(' · ')[0], direction: 'down' as const }] : []),
     ...sparseLabels,
   ], { left: LEFT + 3, right: RIGHT - 3, top: TOP, bottom: BOTTOM });
   const drawAnnotation = (id: string, text: string, color: string) => {
@@ -236,8 +258,10 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
     return studies.labels && label ? <g pointerEvents="none"><rect x={label.x - label.width / 2} y={label.y - 12} width={label.width} height={17} rx="3" fill="#11171d" opacity=".94"/><text x={label.x} y={label.y} textAnchor="middle" fill={color} fontSize="12">{text}</text></g> : null;
   };
   // Price badges share a right-hand rail; shift nearby badges without shifting their actual level lines.
-  const priceBadges = [...levels.map((level, i) => ({ id: `level:${i}`, value: level.value, color: level.color, show: level.inlineLabel })),
-    { id: 'last', value: last.close, color: ORANGE, show: true }].filter(badge => badge.show).sort((a, b) => y(a.value) - y(b.value));
+  const badgeLimit = Math.floor((BOTTOM - TOP) / 23) - 1;
+  const priceBadges = [...levels.map((level, i) => ({ id: `level:${i}`, value: level.value, color: level.color, show: level.inlineLabel }))
+    .filter(badge => badge.show).sort((a, b) => Math.abs(a.value - last.close) - Math.abs(b.value - last.close)).slice(0, badgeLimit),
+    { id: 'last', value: last.close, color: ORANGE, show: true }].sort((a, b) => y(a.value) - y(b.value));
   const badgeY = new Map<string, number>();
   let priorBadgeY = TOP - 23;
   for (let i = 0; i < priceBadges.length; i++) {
@@ -265,7 +289,7 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
         const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=`${symbol}-${startDate}-${endDate}-${source==='demo'?'simulado':source}.csv`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       }}>Exportar velas CSV</button></div>
       <div className="history-signal-legend"><span>{sourceLabel}</span>{signals.length > 0 && <><span className="buy">▲ Entrada por regla</span><span className="sell">▼ Salida por regla</span></>}{validationX !== null && <span className="validation">Zona azul: validación temporal</span>}</div>
-      {onStudyToggle && <ChartStudyToolbar studies={studies} onToggle={onStudyToggle}/>}
+      {onStudyToggle && <ChartStudyToolbar studies={studies} onToggle={onStudyToggle} cores={activeCores}/>}
       <div className="history-view-controls" role="group" aria-label="Ventana visible de la gráfica"><span>Vista</span>{([['all', 'Todo el rango'], ['6m', '6 meses'], ['3m', '3 meses']] as const).map(([value, label]) => <button key={value} className="secondary-button" aria-pressed={viewWindow === value} onClick={() => onViewWindow(value)}>{label}</button>)}<small>{history.length} velas en vista; el análisis y CSV conservan el rango cargado.</small></div>
       <ChartZoomControls zoom={zoom} label="gráfica de mercado" id="market"/>
       <div className="chart-overlay-legend" aria-label="Leyenda de capas visibles">
@@ -340,6 +364,13 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
           );
         })}
         {studies.averages&&<g data-analysis-indicator="sma20-50"><path d={indicatorPath('smaFast')} fill="none" stroke="#e2bf80" strokeWidth="2"/><path d={indicatorPath('smaSlow')} fill="none" stroke="#d8e2ee" strokeWidth="2"/></g>}
+        {trends.map((line, index) => {
+          const fromTime = Math.max(line.confirmedAt, history[0].time);
+          const value = line.startPrice + (line.pivotPrice - line.startPrice) * (fromTime - line.startTime) / (line.pivotTime - line.startTime);
+          const color = line.direction === 'up' ? UP : DOWN;
+          const label = `T${index + 1} · Tendencia ${line.direction === 'up' ? 'alcista' : 'bajista'}`;
+          return <g key={line.id} data-trend-direction={line.direction}><title>{label} · dos pivotes confirmados · conocida desde {formatTime(line.confirmedAt, false)}{line.broken ? ' · ruptura al cierre' : ''}</title><line x1={trendX(fromTime)} x2={trendX(line.endTime)} y1={y(value)} y2={y(line.endPrice)} stroke={color} strokeWidth="2" strokeDasharray={line.broken ? '4 4' : undefined}/>{drawAnnotation(`trend:${line.id}`, `T${index + 1} ${line.direction === 'up' ? 'alcista' : 'bajista'}`, color)}</g>;
+        })}
         {signalMarkers.map(({id,signal,index:markerIndex,count,buy,markerY}) => {
           return <g key={id} data-signal={signal.action} data-signal-time={signal.time}>
             <title>{`${buy?'Entrada':'Salida'} · ${formatTime(signal.time,false)} · $${formatPrice(signal.price)} · ${signal.reason}${count>1?` · ${count} señales en este grupo`:''}`}</title>
@@ -351,7 +382,7 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
           const color = event.direction === 'up' ? UP : DOWN;
           return <g key={id} data-technical-event={event.kind} data-event-count={events.length}><title>{events.map(item => `${item.label} · ${formatTime(item.time, false)}${interval !== '1d' ? ` ${formatTime(item.time, true)}` : ''} · ${item.reason}`).join('\n')}</title><circle cx={x(bucket)} cy={markerY} r="8" fill="transparent"/><path d={`M${x(bucket)},${markerY-4}l4,4l-4,4l-4,-4Z`} fill="#11171d" stroke={color} strokeWidth="1.5"/>{drawAnnotation(id, text, color)}</g>;
         })}
-        {levels.map((level, levelIndex)=><g key={`${level.label}-${levelIndex}`} data-indicator={level.fromTime === undefined ? level.label : undefined} data-price-level={level.fromTime === undefined ? 'manual-or-model' : 'confirmed'}><title>{level.label} · {formatPrice(level.value)}{level.fromTime ? ` · conocido desde ${formatTime(level.fromTime, false)}` : ''}</title><line x1={level.fromTime === undefined ? LEFT : x(bucketForTime(level.fromTime))} x2={RIGHT} y1={y(level.value)} y2={y(level.value)} stroke={level.color} strokeDasharray="6 4" opacity={level.labelVisible ? .8 : .4}/>{level.inlineLabel && drawAnnotation(`level:${levelIndex}`, level.label.replace(' confirmado', ''), level.color)}</g>)}
+        {levels.map((level, levelIndex)=><g key={`${level.label}-${levelIndex}`} data-indicator={level.fromTime === undefined ? level.label : undefined} data-price-level={level.fromTime === undefined ? 'manual-or-model' : 'confirmed'}><title>{level.label} · {formatPrice(level.value)}{level.fromTime ? ` · conocido desde ${formatTime(level.fromTime, false)}` : ''}</title><line x1={level.fromTime === undefined ? LEFT : x(bucketForTime(level.fromTime))} x2={RIGHT} y1={y(level.value)} y2={y(level.value)} stroke={level.color} strokeDasharray="6 4" opacity={level.labelVisible ? .8 : .4}/>{level.inlineLabel && drawAnnotation(`level:${levelIndex}`, level.label.replace(' confirmado', '').split(' \u00b7 ')[0], level.color)}</g>)}
         <line x1={LEFT} x2={RIGHT} y1={lastY} y2={lastY} stroke={ORANGE} strokeWidth="0.8" strokeDasharray="3 4" opacity="0.72" />
         {priceBadges.filter(badge => studies.labels || badge.id === 'last').map(badge => <g key={badge.id} data-price-badge={badge.id}><title>{badge.id === 'last' ? 'Último precio' : levels[Number(badge.id.split(':')[1])].label} · {formatPrice(badge.value)}</title><line x1={RIGHT} x2={RIGHT + 5} y1={y(badge.value)} y2={badgeY.get(badge.id)} stroke={badge.color}/><rect x={RIGHT + 5} y={badgeY.get(badge.id)! - 10} width="79" height="21" rx="3" fill={badge.color}/><text x={RIGHT + 44} y={badgeY.get(badge.id)! + 4} textAnchor="middle" fill="#10171b" fontSize="12" fontWeight="700" fontFamily="ui-monospace, SFMono-Regular, Consolas, monospace">{formatPrice(badge.value)}</text></g>)}
         {current && index !== null && (
@@ -384,7 +415,8 @@ function HistoryChart({ history:fullHistory, loadedHistory, viewWindow, onViewWi
         <p>Las flechas describen la acción, no una compra automática de call/put.</p>
         <ul>{signals.filter(signal => signal.action !== 'hold' && signal.time >= history[0].time && signal.time <= history.at(-1)!.time).slice(-10).reverse().map(signal => <li key={signal.time}><strong>{signal.action === 'buy' ? 'COMPRA' : 'VENTA'} · {formatTime(signal.time, false)} · {formatPrice(signal.price)}</strong><span>{signal.reason}</span></li>)}</ul>
       </details>
-      <p className="chart-technical-status"><strong>ATR14:</strong> {technical.at(-1)?.atr?.toFixed(2) ?? 'sin datos suficientes'} · <strong>Volumen relativo:</strong> {technical.at(-1)?.relativeVolume?.toFixed(2) ?? '—'}× frente a las 20 velas anteriores. {studies.supportResistance && (structure.levels.length ? `${structure.levels.length} niveles confirmados con al menos dos pivotes; se dibujan desde que fueron conocidos.` : 'Aún no hay soportes/resistencias con dos pivotes confirmados en este rango.')} Las marcas son reglas de análisis; no envían órdenes.</p>
+      {studies.trends && <details className="chart-marker-list"><summary>Tendencias de la vista · {trends.length}</summary>{trends.length ? <ul>{trends.map((line, index) => <li key={line.id}><strong style={{color:line.direction === 'up' ? UP : DOWN}}>T{index + 1} · Tendencia {line.direction === 'up' ? 'alcista' : 'bajista'}</strong><span>Pivotes: {formatTime(line.startTime, false)} / {formatTime(line.pivotTime, false)} · confirmada {formatTime(line.confirmedAt, false)}{line.broken ? ' · terminada por ruptura al cierre' : ' · proyección hasta el siguiente pivote o fin de la vista'}.</span></li>)}</ul> : <p>Faltan dos mínimos crecientes o dos máximos decrecientes confirmados.</p>}</details>}
+      {(studies.averages || studies.volume || studies.supportResistance) && <p className="chart-technical-status">{studies.averages && <><strong>ATR14:</strong> {technical.at(-1)?.atr?.toFixed(2) ?? 'sin datos suficientes'} · </>}{studies.volume && <><strong>Volumen relativo:</strong> {technical.at(-1)?.relativeVolume?.toFixed(2) ?? '—'}× frente a las 20 velas anteriores. </>}{studies.supportResistance && (structureLevels.length ? `${structureLevels.length} niveles históricos confirmados, identificados como S/R; se dibujan desde su confirmación. Un nivel histórico puede haber sido superado por el precio.` : 'Aún no hay soportes/resistencias con dos pivotes confirmados en este rango.')} Las marcas no envían órdenes.</p>}
       <div className="history-inspection" aria-live="polite">{current && index !== null ? `${formatTime(current.time,false)}${bucketSize>1?` → ${formatTime(history[sourceIndices[index]].time,false)} · OHLC de hasta ${bucketSize} velas`:''} · O ${formatPrice(current.open)} · H ${formatPrice(current.high)} · L ${formatPrice(current.low)} · C ${formatPrice(current.close)} · V ${current.volume.toLocaleString('es-MX')}` : 'Explora las velas con el cursor o con las flechas del teclado para consultar fecha, OHLC y volumen.'}</div>
       {(optionLevels || studies.volatilityBands || studies.riskScenario) && <div className="chart-model-summary" aria-live="polite">
         {optionLevels && <p>{modelAvailable ? source === 'demo' ? 'Contrato de demostración: strike ATM y equilibrio con prima teórica BSM.' : `Contrato observado: ${observedOption!.contractSymbol}. El equilibrio corresponde a esta opción individual al vencimiento, antes de comisiones.` : 'Faltan datos verificables del contrato para mostrar su strike y equilibrio.'}</p>}

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { readBrokerConfig, BrokerConfigError } from '../brokers/config.ts';
 import { ApiError, privateJson, sameOrigin, smallJson } from '../http.ts';
+import { f5RiskMessages, publicF5RiskMessage } from '../../features/f5/risk-messages.ts';
+import { dailyRiskResetSchema } from '../../features/f5/risk-reset.ts';
 
 type Environment = Record<string, string | undefined>;
 type Dependencies = { environment(): Environment; owner(): Promise<{ userId: string } | null>; fetcher?: typeof fetch; provider?:'alpaca'|'webull' };
@@ -9,6 +11,7 @@ const mutation = z.discriminatedUnion('action', [
   z.object({ action: z.literal('submit'), previewId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('cancel'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('control'), request: z.record(z.unknown()) }).strict(),
+  dailyRiskResetSchema.extend({ action: z.literal('reset-daily-risk') }),
 ]);
 
 function runnerConfig(environment: Environment) {
@@ -60,9 +63,37 @@ export function createF5Handlers(dependencies: Dependencies) {
     if (!response.ok) {
       const status = [400, 401, 403, 404, 409, 410, 413, 415, 422, 429].includes(response.status) ? response.status : 503;
       // Only known public codes cross this boundary; upstream diagnostics stay private.
-      const raw = (value as { error?: { code?: unknown } }).error;
-      const code = typeof raw?.code === 'string' ? raw.code : '';
+      const raw = (value as { error?: unknown }).error;
+      const diagnostic = raw && typeof raw === 'object' ? raw as { code?: unknown; message?: unknown } : null;
+      const code = typeof raw === 'string' ? raw : typeof diagnostic?.code === 'string' ? diagnostic.code : '';
       const messages: Record<string, string> = {
+        account_busy: 'La cuenta está procesando otra solicitud. Espera a que termine y vuelve a revisar la orden.',
+        unauthorized: 'El servicio F5 rechazó el token interno. Revisa TRADING_RUNNER_TOKEN en el terminal y en el servicio.',
+        owner_not_allowed: 'El propietario de la cuenta no coincide con el del servicio F5. Revisa BROKER_OWNER_USER_ID.',
+        runner_unavailable: 'El servicio F5 no pudo completar la consulta. Actualiza el estado antes de revisar otra orden.',
+        not_found: 'El servicio no tiene disponible esta operación F5. Revisa su configuración y versión.',
+        f5_unavailable: 'No se pudo completar la consulta F5. Actualiza el estado antes de revisar otra orden.',
+        f5_owner_required: 'Esta cuenta pertenece a otro usuario del servicio F5.',
+        f5_invalid_query: 'Selecciona una empresa y un vencimiento válidos para consultar los contratos.',
+        f5_invalid_preview: 'La revisión no es válida. Vuelve a revisar los contratos antes de confirmar.',
+        f5_invalid_operation: 'Selecciona una orden válida del registro para cancelar.',
+        f5_roll_unavailable: 'La renovación PMCC necesita una call larga y una corta confirmadas. Actualiza las posiciones del ciclo.',
+        f5_roll_invalid: 'La nueva call corta no cumple las condiciones de renovación PMCC. Revisa vencimiento, strike y ejecución del cierre anterior.',
+        f5_paused: 'La política F5 cambió durante la revisión. Actualiza el estado antes de continuar.',
+        f5_risk_blocked: 'El control de riesgo F5 bloqueó la revisión. Revisa la exposición, las deltas y los límites de riesgo de la cuenta.',
+        f5_risk_reset_unavailable: 'El reinicio manual del control diario solo está disponible para Alpaca Paper.',
+        f5_risk_reset_invalid: 'Confirma el reinicio con la referencia y el límite de pérdida diaria actuales.',
+        f5_risk_reset_changed: 'El control diario cambió. Actualiza el estado y vuelve a revisar el reinicio.',
+        f5_risk_reset_not_needed: 'El bloqueo diario ya no está activo. Actualiza el estado de la cuenta.',
+        broker_exposure_uncertain: 'No se pudo verificar la lista completa de órdenes abiertas. Actualiza la cuenta antes de revisar otra orden.',
+        broker_activities_incomplete: 'No se pudo verificar el historial completo de asignaciones y vencimientos. Actualiza la cuenta antes de revisar otra orden.',
+        broker_unavailable: 'No se pudo consultar el bróker. Actualiza el estado antes de revisar otra orden.',
+        broker_order_invalid: 'Los parámetros de la orden no son válidos. Revisa contratos, cantidades, precio e intenciones de cada pierna.',
+        broker_account_blocked: 'La cuenta está bloqueada para operar. Revisa su estado y permisos en el bróker.',
+        broker_market_closed: 'El mercado está cerrado. Actualiza la revisión durante la sesión antes de enviar.',
+        broker_options_level_required: 'La cuenta no tiene el nivel de opciones necesario para esta estrategia.',
+        broker_insufficient_funds: 'El poder de compra disponible no cubre la orden revisada.',
+        broker_insufficient_position: 'Las posiciones disponibles no cubren la cantidad de la orden revisada.',
         f5_disabled: 'Activa ALPACA_F5_ENABLED=true en el terminal y en el servicio para permitir el envío a Alpaca Paper.',
         f5_preview_expired: 'La revisión venció. Vuelve a revisar los contratos y el precio antes de confirmar.',
         f5_market_closed: 'El mercado está cerrado. Puedes consultar posiciones y preparar la próxima revisión.',
@@ -116,8 +147,12 @@ export function createF5Handlers(dependencies: Dependencies) {
         webull_atomic_roll_unavailable:'Webull no confirmó un roll atómico con intenciones de apertura y cierre. Gestiona la call corta desde la mesa de órdenes y revisa la nueva apertura por separado.',
         broker_endpoint_unavailable:'Este endpoint no está disponible en el sandbox configurado. La sección mantiene sus datos pendientes.',
       };
-      const message=messages[code]??'F5 rechazó la solicitud. Revisa los contratos, las cantidades, el límite de capital y el estado de las órdenes.';
-      throw new ApiError(code in messages ? code : 'f5_request_rejected',webull?message.replaceAll('Alpaca Paper',label).replaceAll('Alpaca','Webull').replaceAll('ALPACA_F5_ENABLED',enableKey):message,status);
+      const known = Object.hasOwn(messages, code);
+      const riskMessage = code === 'f5_risk_blocked' ? publicF5RiskMessage(diagnostic?.message) : undefined;
+      const message = riskMessage
+        ? riskMessage + (riskMessage === f5RiskMessages.uncertain ? ' Actualiza las cotizaciones y comprueba que el bróker publique una delta vigente para cada contrato sugerido y cada posición abierta.' : '')
+        : known ? messages[code] : 'F5 rechazó la solicitud. Revisa los contratos, las cantidades, el límite de capital y el estado de las órdenes.';
+      throw new ApiError(known ? code : 'f5_request_rejected',webull?message.replaceAll('Alpaca Paper',label).replaceAll('Alpaca','Webull').replaceAll('ALPACA_F5_ENABLED',enableKey):message,status);
     }
     if (path === 'status') return privateJson({ ...value, enabled: (value as { enabled?: boolean }).enabled === true && context.environment[enableKey] === 'true' }, response.status);
     return privateJson(value, response.status);
@@ -141,6 +176,10 @@ export function createF5Handlers(dependencies: Dependencies) {
         const context = await authorize(), parsed = mutation.safeParse(await smallJson(request));
         if (!parsed.success) throw new ApiError('f5_invalid_action', 'Revisa los datos de la operación F5.');
         const action = parsed.data;
+        if (action.action === 'reset-daily-risk') {
+          if (webull) throw new ApiError('f5_risk_reset_unavailable', 'El reinicio manual del control diario solo está disponible para Alpaca Paper.', 409);
+          return await forward(context, 'reset-daily-risk', { confirmed: action.confirmed, reference: action.reference });
+        }
         if ((action.action==='submit'||webull&&action.action==='cancel') && context.environment[enableKey] !== 'true') throw new ApiError('f5_disabled', `Activa ${enableKey}=true en el terminal y el servicio para enviar a ${label}.`, 409);
         if (action.action === 'control') {
           if(['enable-plan','tick'].includes(String(action.request.action)))throw new ApiError('manual_orders_only','El terminal usa órdenes manuales. Prepara y confirma cada operación por separado.',409);

@@ -12,7 +12,9 @@ import { installF5QA } from './f5-browser-scenario.mjs';
 import { installWebullQA,runManualScenario } from './manual-browser-scenario.mjs';
 import { installIntelligenceQA,runIntelligenceScenario } from './intelligence-browser-scenario.mjs';
 import { installTechnicalQA,runTechnicalScenario,technicalFundamentalFixture } from './technical-browser-scenario.mjs';
-const mode=process.argv[2]||'flow';
+import {runObservationsScenario} from './observations-browser-scenario.mjs';
+const requestedMode=process.argv[2]||'flow';
+const mode=requestedMode==='observations'?'technical':requestedMode;
 const baseURL=process.env.QA_URL||'http://127.0.0.1:5173';
 const profile=await mkdtemp(path.join(tmpdir(),'tepic-qa-'));
 const chrome=spawn(process.env.CHROME_BIN||'C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=9333',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -30,7 +32,7 @@ try{
   async function reload(){const origin=await evaluate('performance.timeOrigin');await send('Page.reload');await until(`performance.timeOrigin>${origin}`);}
   async function click(text){const clicked=await evaluate(`(()=>{const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)});if(e){e.click();return true;}return false;})()`);assert(clicked,'Missing button '+text);await delay(150);}
   async function input(label,value){assert(await evaluate(`(()=>{const e=document.querySelector('input[aria-label="'+${JSON.stringify(label)}+'"]');if(!e)return false;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),'Missing input '+label);await delay(100);}
-  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('historical-chart')){await evaluate("document.querySelector('.replay-chart').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('historical-pnl')){await evaluate("document.querySelector('.replay-pnl-card').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}if(name.startsWith('intelligence-')){await evaluate("document.querySelector('.intelligence-panel').scrollIntoView()");await delay(150);}if(name.startsWith('technical-')){await evaluate("document.querySelector('.chart-panel').scrollIntoView()");await delay(150);}if(name.startsWith('fundamental-')){await evaluate("document.querySelector('.fundamental-analysis').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
+  async function screenshot(name,width,height){await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(400);if(name.startsWith('historical-chart')){await evaluate("document.querySelector('.replay-chart').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('historical-pnl')){await evaluate("document.querySelector('.replay-pnl-card').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('strategy-comparison')){await evaluate("document.querySelector('.observed-strategy-analysis:not(.ranking-diagnostics)').scrollIntoView()");await delay(150);}if(name.startsWith('intelligence-')){await evaluate("document.querySelector('.intelligence-panel').scrollIntoView()");await delay(150);}if(name.startsWith('backtest-')){await evaluate("document.querySelector('.historical-replay').scrollIntoView({block:'start'})");await delay(150);}if(name.startsWith('technical-')){await evaluate("document.querySelector('.chart-panel').scrollIntoView()");await delay(150);}if(name.startsWith('fundamental-')){await evaluate("document.querySelector('.fundamental-analysis').scrollIntoView()");await delay(150);}const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.resolve('outputs',name),Buffer.from(r.data,'base64'));}
   await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   if(mode==='persistence'){
     // Exercise the real UI in isolation. Only its persistence endpoint is mocked;
@@ -241,7 +243,9 @@ try{
   if(mode!=='quant') await until(`document.querySelector('.terminal-app[aria-busy="false"]') && document.querySelector('button.generate-button') && document.querySelector('.chart-panel') && !document.querySelector('vite-error-overlay')`);
   await delay(1200);await mkdir('outputs',{recursive:true});
   if(['technical','delivery','strategies'].includes(mode)){await evaluate(`document.querySelector('.quick-strategy-comparison').open=true`);await until(`!!document.querySelector('.observed-strategy-analysis')`);}
-  if(mode==='news'){
+  if(requestedMode==='observations'){
+    await runObservationsScenario({evaluate,click,input,until,screenshot});
+  }else if(mode==='news'){
     await runNewsScenario({evaluate,click,until,screenshot});
   }else if(mode==='monte-carlo'){
     await runMonteCarloScenario({evaluate,click,input,until,screenshot});

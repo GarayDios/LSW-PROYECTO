@@ -1,5 +1,5 @@
-// Recomendador acotado de combinaciones de contratos existentes. Conserva cantidades, calidad,
-// capital y procedencia del análisis; las propuestas requieren revisión manual.
+// Recomendador acotado de combinaciones de opciones existentes. Comparte selección, calidad, capital y
+// evaluación de cores; produce propuestas para revisión manual.
 
 // Importa tipos compartidos para verificar las estructuras de datos; no ejecuta cálculos en tiempo de
 // ejecución.
@@ -22,8 +22,9 @@ import {estimatedSnapshot} from './estimated-snapshot.ts';
 // Importa los ayudantes o modelos nombrados en esta declaración; las líneas siguientes explican dónde se
 // utilizan.
 import {analyzeStrategy} from './strategy-analysis.ts';
-// Importa el inspector compartido de calidad y elegibilidad de contratos.
-import {inspectContracts} from './strategy-eligibility.ts';
+// Importa los ayudantes o modelos nombrados en esta declaración; las líneas siguientes explican dónde se
+// utilizan.
+import {inspectContracts,type SelectionDiagnostics} from './strategy-eligibility.ts';
 // Importa los ayudantes o modelos nombrados en esta declaración; las líneas siguientes explican dónde se
 // utilizan.
 import {evaluateScanner} from './scanner.ts';
@@ -42,8 +43,8 @@ export type ContractCandidate={
   profitability:ReturnType<typeof strategyOutlook>['profitability'];horizonSessions:number|null;executionReady:boolean;
 // Cierra el bloque, objeto o llamada definido anteriormente.
 };
-// Describe propuestas, conteos, procedencia, límites de búsqueda y motivos de falta de combinaciones.
-export type ContractRecommendations={symbol:string;strategy:StrategyId;asOf:string;dataMode:'observed'|'estimated';candidates:ContractCandidate[];checked:number;totalContracts:number;eligibleContracts:number;poolSize:number;bounded:boolean;missing:string[]};
+// Describe propuestas, conteos, búsqueda acotada, faltantes y diagnósticos de contratos descartados.
+export type ContractRecommendations={symbol:string;strategy:StrategyId;asOf:string;dataMode:'observed'|'estimated';candidates:ContractCandidate[];checked:number;totalContracts:number;eligibleContracts:number;poolSize:number;bounded:boolean;missing:string[];diagnostics?:SelectionDiagnostics};
 
 // Busca combinaciones alternativas de contratos existentes, sin generar ni enviar órdenes al bróker.
 export function recommendContracts(input:ContractRecommendationRequest):ContractRecommendations{
@@ -53,12 +54,27 @@ export function recommendContracts(input:ContractRecommendationRequest):Contract
   const initial=strategyOutlook(research,strategy,days,settings),mode=initial.resolved.scenario?.dataMode??'observed';
   // Inicializa una respuesta vacía con todos los conteos y la procedencia temporal.
   const output:ContractRecommendations={symbol:research.symbol,strategy,asOf:research.asOf,dataMode:mode,candidates:[],checked:0,totalContracts:research.options.contracts.length,eligibleContracts:0,poolSize:0,bounded:false,missing:[]};
-  // Sin escenario o estructura inicial devuelve el motivo de ausencia y no inicia búsquedas.
-  if(!initial.resolved.scenario||!initial.resolved.analysis){output.missing=[initial.resolved.error??'No hay contratos compatibles con los datos y el capital configurados.'];return output;}
+  // Inspecciona la calidad contractual original para poder explicar incluso una búsqueda que no llega a
+  // empezar.
+  output.diagnostics=inspectContracts(research,analysisPolicy(settings,research)).diagnostics;
+  // Publica cuántos contratos originales pasan los controles de calidad.
+  output.eligibleContracts=output.diagnostics.eligibleContracts;
+  // Si faltan escenario o análisis iniciales, reúne motivos distintos antes de devolver la respuesta vacía.
+  if(!initial.resolved.scenario||!initial.resolved.analysis){output.missing=[...new Set([
+    // Incluye el motivo del proveedor si no llegó ningún contrato.
+    ...(!research.options.contracts.length?[research.options.status.message]:[]),
+    // Incluye faltantes concretos del análisis estructural cuando están disponibles.
+    ...(initial.resolved.analysis?.missing??[]),
+    // Añade el error principal o una explicación general de incompatibilidad.
+    initial.resolved.error??'No hay contratos compatibles con los datos y el capital configurados.',
+  // Elimina duplicados de motivos mediante Set y termina la búsqueda sin inventar propuestas.
+  ])];return output;}
   // Construye la política efectiva, incluyendo modo, plazo de reconstrucción y estrategia.
   const policy={...analysisPolicy(settings,research),modelMode:mode,estimateDays:days,estimateStrategy:strategy};
-  // Prepara el modo de datos y obtiene los contratos que superan los filtros de calidad.
-  const snapshot=estimatedSnapshot(research,policy),eligible=inspectContracts(snapshot,policy).eligible;
+  // Prepara una copia estimada cuando corresponde y vuelve a obtener los contratos elegibles de esa copia.
+  const snapshot=estimatedSnapshot(research,policy),inspection=inspectContracts(snapshot,policy),eligible=inspection.eligible;
+  // Conserva los diagnósticos de los datos que realmente alimentarán esta búsqueda.
+  output.diagnostics=inspection.diagnostics;
   // Actualiza el conteo de elegibles para ese modo de cálculo.
   output.eligibleContracts=eligible.length;
   // Precálcula plazo restante, spread relativo y strike efectivo para ordenar sin repetir cálculos.
@@ -115,7 +131,7 @@ export function recommendContracts(input:ContractRecommendationRequest):Contract
     const evaluation=evaluateScanner(selected,strategy,days,scanner,policy,analysis);
     // Guarda contratos, confluencia, rentabilidad condicional, horizonte y etiqueta de revisión.
     candidates.push({id,analysis,evaluation,profitability:outlook.profitability,horizonSessions:outlook.horizonSessions,executionReady:outlook.executionReady});
-// Cierra el bloque, objeto o llamada definido anteriormente.
+  // Cierra el bloque, objeto o llamada definido anteriormente.
   }
   // Marca la búsqueda como acotada si quedó trabajo pendiente al alcanzar los límites.
   output.bounded ||= queue.length>0;

@@ -17,7 +17,7 @@ export type PriceLevel = {
 export type StructurePoint = { time: number; support: PriceLevel | null; resistance: PriceLevel | null };
 // Devuelve la serie causal completa, los niveles seleccionados al final y cuántas velas se esperan para
 // confirmar un pivote.
-export type SupportResistance = { points: StructurePoint[]; levels: PriceLevel[]; confirmationBars: number };
+export type SupportResistance = { points: StructurePoint[]; levels: PriceLevel[]; allLevels: PriceLevel[]; confirmationBars: number };
 
 // Recibe velas ordenadas y un objeto opcional de configuración para detectar estructura de precio.
 export function analyzeSupportResistance(bars: readonly Candle[], options: {
@@ -35,6 +35,7 @@ export function analyzeSupportResistance(bars: readonly Candle[], options: {
   type Candidate = PriceLevel & { lastIndex: number };
   // Inicializa los niveles candidatos; todavía pueden tener un solo contacto y no ser publicables.
   let candidates: Candidate[] = [];
+  const confirmed = new Map<string, PriceLevel>();
   // Inicializa la historia de soportes y resistencias conocidos en cada instante.
   const points: StructurePoint[] = [];
   // Recorre el histórico en orden temporal para evitar dibujar niveles antes de su confirmación.
@@ -75,6 +76,10 @@ export function analyzeSupportResistance(bars: readonly Candle[], options: {
           existing.touches++; existing.lastIndex = index;
           // Solo al segundo contacto fija la fecha pública de confirmación del nivel en la vela actual.
           if (existing.touches === 2) existing.confirmedAt = bar.time;
+          if (existing.touches >= 2) {
+            const { id, kind, price, touches, pivotAt, confirmedAt } = existing;
+            confirmed.set(id, { id, kind, price, touches, pivotAt, confirmedAt });
+          }
         // Si no hay candidato, crea uno con un contacto y un identificador basado en tipo y fecha del primer pivote.
         } else candidates.push({ id: `${kind}-${center.time}`, kind, price, touches: 1,
           // Registra las fechas y el último índice del candidato; con un solo contacto todavía no será visible como
@@ -115,6 +120,6 @@ export function analyzeSupportResistance(bars: readonly Candle[], options: {
   // Cierra la lista de elementos definida en las líneas anteriores.
   ];
   // Devuelve los puntos históricos, copias de los niveles finales y el retraso de confirmación configurado.
-  return { points, levels: selected.map(({ id, kind, price, touches, pivotAt, confirmedAt }) => ({ id, kind, price, touches, pivotAt, confirmedAt })), confirmationBars: width };
+  return { points, levels: selected.map(({ id, kind, price, touches, pivotAt, confirmedAt }) => ({ id, kind, price, touches, pivotAt, confirmedAt })), allLevels: [...confirmed.values()], confirmationBars: width };
 // Cierra el bloque, objeto o declaración iniciado anteriormente.
 }

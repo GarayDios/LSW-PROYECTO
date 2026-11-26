@@ -8,6 +8,7 @@ import { createF5Service, type F5Broker } from '../../services/trading-runner/f5
 import { openF5Store } from '../../services/trading-runner/f5-store.ts';
 import { openRunnerStore } from '../../services/trading-runner/store.ts';
 import { createRunnerService } from '../../services/trading-runner/server.ts';
+import { createF5Handlers } from '../../src/api/f5/handlers.ts';
 import type { F5Account, F5Activity, F5BrokerOrder, F5Contract, F5OpenRequest, F5Operation, F5OrderInput, F5Position, F5Request, F5Status } from '../../src/features/f5/types.ts';
 
 const NOW = Date.parse('2026-11-16T16:00:00Z');
@@ -27,7 +28,7 @@ function reply(input: F5OrderInput, state = 'new', filled = 0): F5BrokerOrder {
     ...(input.legs ? { legs: input.legs.map(leg => ({ id: `leg_${input.client_order_id}_${leg.symbol}`, client_order_id: 'child_' + leg.symbol, status: state, qty: String(Number(input.qty) * Number(leg.ratio_qty)), filled_qty: String(filled * Number(leg.ratio_qty)), symbol: leg.symbol, side: leg.side, position_intent: leg.position_intent, ratio_qty: leg.ratio_qty })) } : {}),
   };
 }
-function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (underlying: string) => number } = {}) {
+function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (underlying: string) => number; provider?: 'alpaca' | 'webull' } = {}) {
   const store = openF5Store(extra.filename ?? ':memory:');
   let time = NOW, open = true, enabled = extra.enabled ?? true, sends = 0, cancellations = 0;
   let account: F5Account = { status: 'ACTIVE', cash: 100000, buyingPower: 100000, optionsBuyingPower: 100000, equity: 100000, optionsLevel: 3, blocked: false };
@@ -46,7 +47,7 @@ function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (
     submit: async input => { sends++; return send(input); },
     cancel: async () => { cancellations++; },
   };
-  const service = () => createF5Service({ store, broker, ownerId: owner, enabled, now: () => time, reservedShares: extra.reservedShares });
+  const service = () => createF5Service({ store, broker, ownerId: owner, enabled, now: () => time, reservedShares: extra.reservedShares, provider: extra.provider });
   let api = service();
   const take = (method: string, route: string, body?: unknown, user = owner) => api.handle(method, '/f5/' + route, user, body);
   const preview = async (request: F5Request = wheel()) => {
@@ -69,6 +70,105 @@ function setup(extra: { enabled?: boolean; filename?: string; reservedShares?: (
 }
 function errorCode(result: { value: unknown }) { return (result.value as { error: { code: string } }).error.code; }
 
+test('a confirmed Paper risk reset preserves limits and audit history, expires old reviews and survives restart', async t => {
+  const s = setup(); t.after(() => s.store.close());
+  const oldPreview = await s.preview();
+  const settings = s.store.settings(owner);
+  s.setAccount({ equity: 98000 });
+  await s.take('GET', 'status');
+  s.setAccount({ equity: 99500 });
+  const state = (await s.take('GET', 'status')).value as F5Status;
+  assert.equal(state.risk!.dailyLossBlocked, true, 'recovery alone keeps the daily lock');
+  assert.equal(state.risk!.dailyPnlUsd, -500);
+  const body = { confirmed: true, reference: { date: state.risk!.date, baselineEquity: state.risk!.baselineEquity, maxDailyLossUsd: settings.maxDailyLossUsd, resetId: null } };
+  assert.equal((await s.take('POST', 'reset-daily-risk', body, 'another-owner')).status, 403);
+  for (const invalid of [{ reference: body.reference }, { ...body, confirmed: false }, { ...body, ownerId: owner }]) {
+    assert.equal((await s.take('POST', 'reset-daily-risk', invalid)).status, 400);
+    assert.equal(s.store.risk(owner)!.dailyLossBlocked, true);
+  }
+  const reset = await s.take('POST', 'reset-daily-risk', body);
+  assert.equal(reset.status, 200);
+  assert.equal(s.store.risk(owner)!.baselineEquity, 99500);
+  assert.equal(s.store.risk(owner)!.dailyPnlUsd, 0);
+  assert.equal(s.store.risk(owner)!.dailyLossBlocked, false);
+  assert.deepEqual(s.store.settings(owner), settings);
+  assert.equal(s.store.get(owner, oldPreview.id)!.state, 'expired');
+  const audit = s.store.events(owner).find(event => event.riskReset)!;
+  assert.equal(audit.riskReset!.previous.baselineEquity, 100000);
+  assert.equal(audit.riskReset!.previous.dailyPnlUsd, -500);
+  assert.equal(audit.riskReset!.previous.dailyLossBlocked, true);
+  assert.equal(audit.riskReset!.newBaselineEquity, 99500);
+  assert.equal((await s.take('POST', 'reset-daily-risk', body)).status, 409, 'replaying confirmation cannot reset twice');
+  s.restart();
+  await s.preview();
+  s.setAccount({ equity: 98400 });
+  const blocked = await s.take('POST', 'preview', wheel());
+  assert.equal(errorCode(blocked), 'f5_risk_blocked', 'the preserved loss limit applies to the new period');
+  assert.equal(s.sends(), 0);
+});
+
+test('Paper risk reset rejects changed references, Webull, pending orders, unknown equity and held leases', async t => {
+  for (const mode of ['reference', 'limit', 'date', 'webull', 'pending', 'equity', 'lease'] as const) {
+    const s = setup({ provider: mode === 'webull' ? 'webull' : 'alpaca' }); t.after(() => s.store.close());
+    const opening = await s.preview();
+    await s.take('GET', 'status');
+    s.setAccount({ equity: 98000 });
+    const state = (await s.take('GET', 'status')).value as F5Status;
+    const body = { confirmed: true, reference: { date: state.risk!.date, baselineEquity: state.risk!.baselineEquity, maxDailyLossUsd: state.riskSettings!.maxDailyLossUsd, resetId: null } };
+    if (mode === 'reference') body.reference.baselineEquity++;
+    if (mode === 'limit') body.reference.maxDailyLossUsd++;
+    if (mode === 'date') body.reference.date = '2026-11-15';
+    if (mode === 'pending') s.setOrders([reply(opening.input)]);
+    if (mode === 'equity') s.setAccount({ equity: NaN });
+    if (mode === 'lease') s.store.acquire(owner, NOW);
+    const result = await s.take('POST', 'reset-daily-risk', body);
+    assert.equal(result.status, 409, mode);
+    assert.equal(s.store.risk(owner)!.dailyLossBlocked, true, mode);
+    assert.equal(s.store.events(owner).filter(event => event.riskReset).length, 0, mode);
+    assert.equal(s.sends(), 0);
+  }
+});
+
+test('risk reset audit and review invalidation roll back together when audit insertion fails', async t => {
+  const s = setup(); t.after(() => s.store.close());
+  const preview = await s.preview();
+  const risk = s.store.risk(owner)!;
+  const audit = { id: 'same-id', time: new Date(NOW).toISOString(), status: 'info' as const, message: 'existing event' };
+  s.store.event(owner, audit, 'original');
+  assert.throws(() => s.store.resetDailyRisk(owner, { ...risk, baselineEquity: 42 }, audit));
+  assert.deepEqual(s.store.risk(owner), risk);
+  assert.equal(s.store.get(owner, preview.id)!.state, 'preview');
+  assert.equal(s.store.events(owner).length, 1);
+});
+
+test('a Paper reset persists its period identity and an old confirmation cannot unlock a later loss', async t => {
+  const folder = mkdtempSync(path.join(os.tmpdir(), 'tepic-risk-reset-'));
+  const filename = path.join(folder, 'f5.sqlite');
+  const s = setup({ filename });
+  t.after(() => { s.store.close(); rmSync(folder, { recursive: true, force: true }); });
+  await s.take('GET', 'status');
+  s.setAccount({ equity: 98000 }); await s.take('GET', 'status');
+  s.setAccount({ equity: 100000 });
+  const state = (await s.take('GET', 'status')).value as F5Status;
+  const body = { confirmed: true, reference: { date: state.risk!.date, baselineEquity: 100000, maxDailyLossUsd: 1000, resetId: null } };
+  const replies = await Promise.all([s.take('POST', 'reset-daily-risk', body), s.take('POST', 'reset-daily-risk', body)]);
+  assert.deepEqual(replies.map(result => result.status).sort(), [200, 409]);
+  const resetId = s.store.risk(owner)!.resetId;
+  assert(resetId);
+  const reopened = openF5Store(filename);
+  try {
+    assert.equal(reopened.risk(owner)!.resetId, resetId);
+    assert.equal(reopened.events(owner).filter(event => event.riskReset).length, 1);
+  } finally { reopened.close(); }
+  s.restart(); s.setAccount({ equity: 98000 }); await s.take('GET', 'status');
+  assert.equal(s.store.risk(owner)!.dailyLossBlocked, true);
+  const replay = await s.take('POST', 'reset-daily-risk', body);
+  assert.equal(errorCode(replay), 'f5_risk_reset_changed');
+  assert.equal(s.store.risk(owner)!.dailyLossBlocked, true);
+  assert.equal(s.store.events(owner).filter(event => event.riskReset).length, 1);
+  assert.equal(s.sends(), 0);
+});
+
 test('manual account report is readable without submitting an order and keeps missing accounting evidence explicit',async t=>{
   const fixture=setup();t.after(()=>fixture.store.close());
   const result=await fixture.take('GET','report');
@@ -83,6 +183,31 @@ test('an unpriced account position still blocks new F5 exposure', async t => {
   const result=await s.take('POST','preview',wheel());
   assert.equal(result.status,409);assert.equal(errorCode(result),'f5_risk_blocked');
   assert.equal(s.sends(),0);
+});
+
+test('a suggested contract without delta explains the risk block through the public preview route', async t => {
+  const fixture = setup(); t.after(() => fixture.store.close());
+  fixture.metadata.get(put)!.delta = null;
+  const api = createF5Handlers({
+    environment: () => ({ ALPACA_API_KEY: 'test-key', ALPACA_SECRET_KEY: 'test-secret', BROKER_OWNER_USER_ID: owner,
+      TRADING_RUNNER_URL: 'http://127.0.0.1:8790', TRADING_RUNNER_TOKEN: 'test-internal-token-at-least-32-characters' }),
+    owner: async () => ({ userId: owner }),
+    fetcher: async (_input, init) => {
+      const { ownerId, ...payload } = JSON.parse(String(init?.body));
+      const result = await fixture.take('POST', 'preview', payload, ownerId);
+      return Response.json(result.value, { status: result.status });
+    },
+  });
+  const result = await api.post(new Request('https://terminal.test/api/f5', { method: 'POST',
+    headers: { Origin: 'https://terminal.test', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'preview', request: wheel() }),
+  }));
+  assert.equal(result.status, 409);
+  const body = await result.json() as { error: { code: string; message: string } };
+  assert.equal(body.error.code, 'f5_risk_blocked');
+  assert.match(body.error.message, /delta vigente para cada contrato sugerido/);
+  assert.equal(fixture.store.list(owner).length, 0);
+  assert.equal(fixture.sends(), 0);
 });
 
 test('a Gamma equity hedge with inferred intent reconciles after restart without another order', async t => {
